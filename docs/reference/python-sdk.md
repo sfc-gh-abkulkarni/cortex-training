@@ -39,7 +39,8 @@ Tracked operations:
   `cancel_job`, `get_capacity`, `get_experiment_run`
 - Compute: `forward_backward`, `forward`, `generate`, `generate_stream`, `step`
 - Checkpoints and logs: `save`, `load`, `list_checkpoints`,
-  `export_checkpoint`, `delete_checkpoint`, `fetch_execution_logs`
+  `export_checkpoint`, `delete_checkpoint`, `fetch_execution_logs`,
+  `download_stdout_logs`, `download_metrics`
 - Multi-sub-job operations: `weight_sync`, `bootstrap_router_replay`,
   `router_replay_discard`, `reset_prefix_cache`
 - Async requests: `poll_request`, `get_request_status`, `cancel_request`
@@ -109,7 +110,11 @@ operation.
 `tail_logs(job_id, ...)` returns one cursor page;
 `stream_logs(job_id, follow=True, ...)` yields entries and keeps polling.
 `fetch_execution_logs(job_id)` downloads every log file for the job's experiment
-run and returns `{sub_job_id, filename, s3_uri, content}` dicts.
+run and returns `{sub_job_id, filename, artifact_uri, content}` dicts.
+`download_stdout_logs(job_id, output_dir)` reconstructs persisted console chunks
+as `<output_dir>/<sub_job_id>/stdout.log`.
+`download_metrics(job_id, output_dir)` reconstructs GPU metric chunks as
+`<output_dir>/<sub_job_id>/gpu.jsonl`.
 `get_experiment_run(job_id)` resolves the experiment/run names.
 
 ## Building payloads
