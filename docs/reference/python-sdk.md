@@ -39,8 +39,7 @@ Tracked operations:
   `cancel_job`, `get_capacity`, `get_experiment_run`
 - Compute: `forward_backward`, `forward`, `generate`, `generate_stream`, `step`
 - Checkpoints and logs: `save`, `load`, `list_checkpoints`,
-  `export_checkpoint`, `delete_checkpoint`, `fetch_execution_logs`,
-  `download_stdout_logs`, `download_metrics`
+  `export_checkpoint`, `delete_checkpoint`, `fetch_execution_logs`
 - Multi-sub-job operations: `weight_sync`, `bootstrap_router_replay`,
   `router_replay_discard`, `reset_prefix_cache`
 - Async requests: `poll_request`, `get_request_status`, `cancel_request`

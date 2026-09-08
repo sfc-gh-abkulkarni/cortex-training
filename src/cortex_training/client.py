@@ -1785,7 +1785,6 @@ class CortexTrainingClient:
         finally:
             connection.close()
 
-    @_track_operation("download_stdout_logs")
     def download_stdout_logs(
         self, job_id: str, output_dir: str | os.PathLike[str]
     ) -> list[dict[str, Any]]:
@@ -1799,7 +1798,6 @@ class CortexTrainingClient:
             temporary_prefix=".stdout-",
         )
 
-    @_track_operation("download_metrics")
     def download_metrics(
         self, job_id: str, output_dir: str | os.PathLike[str]
     ) -> list[dict[str, Any]]:

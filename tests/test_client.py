@@ -686,8 +686,6 @@ class TestOperationMetrics:
         "get_capacity",
         "get_experiment_run",
         "fetch_execution_logs",
-        "download_stdout_logs",
-        "download_metrics",
         "forward_backward",
         "generate",
         "generate_stream",
