@@ -378,6 +378,30 @@ class JobType(str, Enum):
     LOG_PROBABILITY = "log_probability"
 
 
+class Hardware(str, Enum):
+    """GPU hardware for create job and capacity.
+
+    Wire values match the REST ``hardware`` field; see
+    ``docs/reference/rest-api.md`` sections 5.1 and 5.4. Omitting it defaults to
+    H200 on the server. Unknown values are rejected client-side.
+    """
+
+    H200 = "H200"
+    B200 = "B200"
+    B300 = "B300"
+
+
+def _hardware_wire(hardware: Hardware | str) -> str:
+    """Return the wire spelling for ``hardware``."""
+    if isinstance(hardware, Hardware):
+        return hardware.value
+    try:
+        return Hardware(hardware).value
+    except ValueError as exc:
+        allowed = ", ".join(member.value for member in Hardware)
+        raise ValueError(f"hardware must be one of {allowed}, got {hardware!r}") from exc
+
+
 def _effective_primerl_config(extra: dict) -> dict:
     prime_rl = extra.get("prime_rl")
     if isinstance(prime_rl, dict):
@@ -1323,6 +1347,7 @@ class CortexTrainingClient:
         sub_jobs: list[SubJobConfig],
         job_id: str | None = None,
         experiment_name: str | None = None,
+        hardware: Hardware | str | None = None,
         idle_timeout_seconds: int | None = None,
         pending_timeout_seconds: int | None = None,
     ) -> str:
@@ -1332,6 +1357,9 @@ class CortexTrainingClient:
         is sent (see :meth:`SubJobConfig.validate`). ``job_id`` is optional;
         when omitted the server generates one. ``experiment_name`` is optional;
         when omitted the server auto-creates an experiment for the job.
+        ``hardware`` is optional (:class:`Hardware`.H200 / .B200 / .B300); when
+        set, all sub-jobs in the job run on that GPU type. Omitted defaults to
+        H200.
         ``idle_timeout_seconds`` bounds how long the job may sit idle before the
         server reclaims it: ``0`` disables reclamation, any other value must be
         between 300 and 604,800. ``pending_timeout_seconds`` bounds how long the
@@ -1368,6 +1396,8 @@ class CortexTrainingClient:
             body["job_id"] = job_id
         if experiment_name is not None:
             body["experiment_name"] = experiment_name
+        if hardware is not None:
+            body["hardware"] = _hardware_wire(hardware)
         if idle_timeout_seconds is not None:
             body["idle_timeout_seconds"] = idle_timeout_seconds
         if pending_timeout_seconds is not None:
@@ -1449,13 +1479,15 @@ class CortexTrainingClient:
         self._send("POST", f"{self._prefix}/{job_id}:cancel")
 
     @_track_operation("get_capacity")
-    def get_capacity(self) -> dict:
+    def get_capacity(self, hardware: Hardware | str | None = None) -> dict:
         """Return the calling account's reserved GPU capacity and current usage.
 
         Backed by the account-scoped endpoint ``/cortex-training/capacity``
         (not under ``/{job_id}``). The account is resolved server-side from the
         caller's session — never from a request field — so a caller can only
-        ever read its own account's capacity.
+        ever read its own account's capacity. Optional ``hardware``
+        (:class:`Hardware`.H200 / .B200 / .B300) is sent as a query parameter and
+        scopes the numbers to that GPU type; omitted defaults to H200.
 
         The returned dict always carries all four fields. The server emits
         proto3 JSON, which omits zero/false fields (an unreserved account's
@@ -1474,7 +1506,14 @@ class CortexTrainingClient:
         See ``docs/reference/rest-api.md`` section 5.4 for the authoritative
         field list.
         """
-        resp = self._send("GET", f"{self._prefix}/capacity")
+        params = {}
+        if hardware is not None:
+            params["hardware"] = _hardware_wire(hardware)
+        resp = self._send(
+            "GET",
+            f"{self._prefix}/capacity",
+            **({"params": params} if params else {}),
+        )
         body = resp.json()
         return {
             "has_reservation": bool(body.get("has_reservation", False)),

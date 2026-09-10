@@ -58,6 +58,7 @@ TrainingConfig = nc.TrainingConfig
 InferenceConfig = nc.InferenceConfig
 SubJobConfig = nc.SubJobConfig
 CortexTrainingClient = nc.CortexTrainingClient
+Hardware = nc.Hardware
 
 
 def _wire_load(data: bytes):
@@ -997,6 +998,24 @@ class TestCreateJob:
         body = c._session.post.call_args.kwargs["json"]
         assert "experiment_name" not in body
 
+    @pytest.mark.parametrize(
+        "hardware, wire_value",
+        [
+            (Hardware.H200, "H200"),
+            (Hardware.B200, "B200"),
+            (Hardware.B300, "B300"),
+            ("B200", "B200"),
+        ],
+    )
+    def test_includes_hardware_when_given(self, hardware, wire_value):
+        c = _make_client(post_json={"job_id": "srv-1"})
+        sub = SubJobConfig.sampling_job(model_name="gpt2", max_seq_len=128, n_gpus=1)
+        c.create_job(sub_jobs=[sub], hardware=hardware)
+        body = c._session.post.call_args.kwargs["json"]
+        assert body["hardware"] == wire_value
+
+    # Omitted rather than sent as H200: the server owns the default.
+    def test_omits_hardware_when_none(self):
     # 0 is accepted here; pending_timeout_seconds rejects it.
     @pytest.mark.parametrize(
         "idle_timeout_seconds", [0, 300, 1_800, 604_800]
@@ -1013,6 +1032,14 @@ class TestCreateJob:
         sub = SubJobConfig.sampling_job(model_name="gpt2", max_seq_len=128, n_gpus=1)
         c.create_job(sub_jobs=[sub])
         body = c._session.post.call_args.kwargs["json"]
+        assert "hardware" not in body
+
+    @pytest.mark.parametrize("hardware", ["A10", "h200", "", 200])
+    def test_rejects_unknown_hardware(self, hardware):
+        c = _make_client()
+        sub = SubJobConfig.sampling_job(model_name="gpt2", max_seq_len=128, n_gpus=1)
+        with pytest.raises(ValueError, match="hardware must be one of"):
+            c.create_job(sub_jobs=[sub], hardware=hardware)
         assert "idle_timeout_seconds" not in body
 
     @pytest.mark.parametrize(
@@ -1205,6 +1232,19 @@ class TestReadAndControl:
             "available_gpus": 56,
         }
         c._session.get.assert_called_once_with(f"{c._prefix}/capacity")
+
+    def test_get_capacity_sends_hardware_query(self):
+        c = _make_client(get_json={"has_reservation": True, "reserved_gpus": 32})
+        c.get_capacity(hardware=Hardware.B200)
+        c._session.get.assert_called_once_with(
+            f"{c._prefix}/capacity", params={"hardware": "B200"}
+        )
+
+    def test_get_capacity_rejects_unknown_hardware(self):
+        c = _make_client(get_json={})
+        with pytest.raises(ValueError, match="hardware must be one of"):
+            c.get_capacity(hardware="A10")
+        c._session.get.assert_not_called()
 
     def test_get_capacity_fills_proto3_omitted_defaults(self):
         # proto3 JSON omits zero/false fields; an unreserved account is `{}`.
