@@ -325,9 +325,14 @@ REST body:
 }
 ```
 
-`sub_job_configs` must be a non-empty list. The typed path validates each
-`SubJobConfig`; `create_job_from_body()` only checks the outer body and non-empty
-list before forwarding it.
+`sub_job_configs` must be a non-empty list carrying **zero or one** `training`
+sub-job and any number of `sampling` / `log_probability` sub-jobs. A second
+training sub-job is rejected with `at most one training sub-job is supported per
+job`; the server enforces the same rule for every caller.
+
+The typed path validates each `SubJobConfig`; `create_job_from_body()` checks the
+outer body, the non-empty list, and the training-sub-job count before forwarding
+it.
 
 #### GPU hardware - `hardware`
 
@@ -748,14 +753,13 @@ for sj in training_sub_jobs:
     print(f"ID: {sj['sub_job_id']}, DP size: {sj['training_config']['n_gpus']}")
 ```
 
-#### When to use target_sub_job_id
+#### When to use target_sub_job_id (load)
 
-Most sessions have a single training sub-job, so omit `target_sub_job_id` to use
-the default. Use it when:
-
-- The session has multiple training sub-jobs
-- You need to load different checkpoints into different sub-jobs
-- You want explicit routing control
+A job has at most one training sub-job, so omit `target_sub_job_id` to use the
+default. Use it when you want explicit routing control — for example naming the
+sub-job in tooling that must not rely on the server's default resolution. It
+selects a training sub-job; the sampling-side selector is `target_sub_job_ids` on
+weight sync.
 
 #### DP size compatibility
 

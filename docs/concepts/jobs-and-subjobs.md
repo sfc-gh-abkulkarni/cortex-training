@@ -7,6 +7,11 @@ A job is the top-level lifecycle resource. It contains one or more sub-jobs:
 - `sampling` handles generation.
 - `log_probability` configures log-probability workers.
 
+A job supports **zero or one** `training` sub-job, and any number of `sampling`
+and `log_probability` sub-jobs. A create request carrying a second training
+sub-job is rejected — client-side before it is sent, and by the server for any
+other caller.
+
 Internal sub-job identifiers use the form:
 
 ```text

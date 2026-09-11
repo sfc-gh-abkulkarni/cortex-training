@@ -269,8 +269,8 @@ def build_parser(
         dest="target_sub_job_id",
         help=(
             "Training sub-job to load the checkpoint into, e.g. JOB_ID:training:0. "
-            "Use this for sessions with multiple training sub-jobs when you need "
-            "explicit routing control. Omit to use the default training sub-job. "
+            "Use this when you need explicit routing control; a job has at most one "
+            "training sub-job, so omitting it uses that sub-job. "
             "Use 'cortex-training get JOB_ID' to discover available sub-job IDs."
         ),
     )
@@ -614,6 +614,14 @@ def _validate_create_job_body(body: dict[str, Any]) -> None:
     sub_job_configs = body.get("sub_job_configs")
     if not isinstance(sub_job_configs, list) or not sub_job_configs:
         raise ValueError("job JSON must contain a non-empty sub_job_configs list")
+    # Mirrors client.create_job_from_body; submit --dry-run never builds a client.
+    training_sub_jobs = sum(
+        1
+        for cfg in sub_job_configs
+        if isinstance(cfg, dict) and str(cfg.get("job_type") or "").strip().lower() == "training"
+    )
+    if training_sub_jobs > 1:
+        raise ValueError("at most one training sub-job is supported per job")
 
 
 def _print_json(value: Any, stdout: TextIO, *, compact: bool) -> None:

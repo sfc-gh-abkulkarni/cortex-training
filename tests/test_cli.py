@@ -283,6 +283,43 @@ def test_submit_dry_run_does_not_require_connection(tmp_path, monkeypatch):
     assert json.loads(stdout.getvalue())["job_id"] == "dry"
 
 
+def _write_two_training_job(tmp_path):
+    path = tmp_path / "two-training.json"
+    training = {
+        "job_type": "training",
+        "model_name": "gpt2",
+        "training_config": {"max_seq_len": 128, "train_batch_size": 1, "n_gpus": 2},
+    }
+    path.write_text(json.dumps({"sub_job_configs": [training, training]}), encoding="utf-8")
+    return path
+
+
+def test_submit_rejects_two_training_sub_jobs(tmp_path):
+    instances = []
+    stderr = io.StringIO()
+    path = _write_two_training_job(tmp_path)
+
+    rc = cli.main(
+        _base_args() + ["submit", str(path)],
+        client_factory=_factory(instances),
+        stderr=stderr,
+    )
+
+    assert rc == 1
+    assert "at most one training sub-job is supported per job" in stderr.getvalue()
+    assert instances[0].submitted_body is None
+
+
+def test_submit_dry_run_rejects_two_training_sub_jobs(tmp_path):
+    stderr = io.StringIO()
+    path = _write_two_training_job(tmp_path)
+
+    rc = cli.main(["submit", str(path), "--dry-run"], stderr=stderr)
+
+    assert rc == 1
+    assert "at most one training sub-job is supported per job" in stderr.getvalue()
+
+
 def test_list_prints_jobs_with_status_filter():
     instances = []
     stdout = io.StringIO()

@@ -1354,7 +1354,9 @@ class CortexTrainingClient:
         """Create a job from a list of sub-jobs and return its server job_id.
 
         Each :class:`SubJobConfig` is validated client-side before the request
-        is sent (see :meth:`SubJobConfig.validate`). ``job_id`` is optional;
+        is sent (see :meth:`SubJobConfig.validate`). A job supports zero or one
+        ``training`` sub-job and any number of ``sampling`` /
+        ``log_probability`` sub-jobs. ``job_id`` is optional;
         when omitted the server generates one. ``experiment_name`` is optional;
         when omitted the server auto-creates an experiment for the job.
         ``hardware`` is optional (:class:`Hardware`.H200 / .B200 / .B300); when
@@ -1410,12 +1412,24 @@ class CortexTrainingClient:
 
         This is useful for tooling that already has the REST JSON payload,
         while :meth:`create_job` remains the typed path for Python callers.
+
+        A job supports zero or one ``training`` sub-job and any number of
+        ``sampling`` / ``log_probability`` sub-jobs; a second training sub-job
+        raises :class:`ValueError` before the request is sent.
         """
         if not isinstance(body, dict):
             raise ValueError("create_job_from_body requires a JSON object")
         sub_job_configs = body.get("sub_job_configs")
         if not isinstance(sub_job_configs, list) or not sub_job_configs:
             raise ValueError("create_job_from_body requires a non-empty sub_job_configs list")
+        training_sub_jobs = sum(
+            1
+            for cfg in sub_job_configs
+            if isinstance(cfg, dict)
+            and str(cfg.get("job_type") or "").strip().lower() == JobType.TRAINING.value
+        )
+        if training_sub_jobs > 1:
+            raise ValueError("at most one training sub-job is supported per job")
         if body.get("debug") and not _debug_options_enabled():
             raise ValueError(
                 "create-job debug options are an internal-only capability; set "
@@ -1945,9 +1959,9 @@ class CortexTrainingClient:
 
         **When to use target_sub_job_id:**
 
-        Use this when working with sessions that have multiple training
-        sub-jobs (e.g., multi-DP configurations) and you need to load
-        checkpoints into a specific sub-job rather than the default.
+        A job has at most one training sub-job, so omitting this routes to that
+        sub-job. Pass it when you want explicit routing rather than relying on
+        the server's default resolution.
 
         **Discovering sub-job IDs:**
 
