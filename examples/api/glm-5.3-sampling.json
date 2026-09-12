@@ -2,11 +2,12 @@
   "sub_job_configs": [
     {
       "inference_config": {
-        "max_seq_len": 32768,
+        "max_seq_len": 720896,
         "n_gpus": 8,
         "vllm_config": {
-          "gpu_memory_utilization": 0.85,
-          "kv_cache_dtype": "fp8",
+          "enforce_eager": true,
+          "gpu_memory_utilization": 0.95,
+          "kv_cache_dtype": "fp8_ds_mla",
           "reasoning_parser": "glm45",
           "tensor_parallel_size": 8
         }
