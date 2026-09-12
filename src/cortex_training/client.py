@@ -34,12 +34,17 @@ use the ``extra`` fields for anything the typed layer does not model yet.
 from __future__ import annotations
 
 import base64
+import functools
 import hashlib
+import inspect
 import json
 import logging
 import os
+import re
+import threading
 import time
 from collections.abc import Iterator
+from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field
 from enum import Enum
@@ -54,6 +59,8 @@ from tenacity import wait_exponential_jitter
 from urllib3.exceptions import NewConnectionError
 
 from cortex_training import wire
+from cortex_training.telemetry import CachedSessionTokenProvider
+from cortex_training.telemetry import OtlpMetricEmitter
 
 logger = logging.getLogger(__name__)
 
@@ -62,16 +69,32 @@ logger = logging.getLogger(__name__)
 # refuses to forward a create-job request carrying a `debug` block unless this
 # is set to a truthy value. The server gates them independently.
 DEBUG_OPTIONS_ENV = "CORTEX_TRAINING_ENABLE_DEBUG_OPTIONS"
+DISABLE_TELEMETRY_ENV = "CORTEX_TRAINING_DISABLE_TELEMETRY"
+ENABLE_SUCCESS_TELEMETRY_ENV = "CORTEX_TRAINING_ENABLE_SUCCESS_TELEMETRY"
 
 
-def _debug_options_enabled() -> bool:
-    """True when create-job debug options are explicitly enabled via env var."""
-    return os.environ.get(DEBUG_OPTIONS_ENV, "").strip().lower() in {
+def _env_flag_enabled(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {
         "1",
         "true",
         "yes",
         "on",
     }
+
+
+def _debug_options_enabled() -> bool:
+    """True when create-job debug options are explicitly enabled via env var."""
+    return _env_flag_enabled(DEBUG_OPTIONS_ENV)
+
+
+def _telemetry_disabled() -> bool:
+    """True when OTLP client metrics are explicitly disabled via env var."""
+    return _env_flag_enabled(DISABLE_TELEMETRY_ENV)
+
+
+def _success_telemetry_enabled() -> bool:
+    """True when successful automatic operation outcomes should be emitted."""
+    return _env_flag_enabled(ENABLE_SUCCESS_TELEMETRY_ENV)
 
 
 # HTTP statuses worth retrying: the request was well-formed, so the same call
@@ -171,6 +194,157 @@ def _chunk_group_error_detail(response: requests.Response | None) -> dict | None
     return None
 
 
+_METRIC_IDENTITY_FIELDS = (
+    "job_id",
+    "sub_job_id",
+    "sub_job_type",
+    "source_job_id",
+    "source_sub_job_id",
+    "target_sub_job_id",
+    "target_sub_job_ids",
+    "request_id",
+    "checkpoint_id",
+)
+_REQUEST_ID_RESULT_OPERATIONS = {
+    "forward_backward",
+    "forward",
+    "generate",
+    "generate_stream",
+    "step",
+    "save",
+    "load",
+    "weight_sync",
+    "bootstrap_router_replay",
+    "router_replay_discard",
+    "reset_prefix_cache",
+    "cancel_request",
+}
+_METRIC_ERROR_MESSAGE_LIMIT = 512
+_SECRET_IN_ERROR_RE = re.compile(
+    r"(?i)(authorization[\"']?\s*[:=]\s*"
+    r"(?:bearer\s+|snowflake\s+token\s*=\s*)?|"
+    r"bearer\s+|snowflake\s+token\s*=\s*|"
+    r"(?:password|secret|credential|pat|api[_-]?key|private[_-]?key|"
+    r"access[_-]?token|refresh[_-]?token|session[_-]?token|token)"
+    r"[\"']?\s*[:=]\s*)"
+    r"(?:\"[^\"]*\"|'[^']*'|\S+)"
+)
+
+
+def _safe_metric_error_message(exc: BaseException) -> str:
+    """Return a bounded, single-line error message with obvious secrets redacted."""
+    message = " ".join(str(exc).split())
+    message = _SECRET_IN_ERROR_RE.sub(r"\1<redacted>", message)
+    return message[:_METRIC_ERROR_MESSAGE_LIMIT]
+
+
+def _metric_error_attributes(exc: BaseException) -> dict[str, Any]:
+    attributes: dict[str, Any] = {"error.type": type(exc).__name__}
+    response = getattr(exc, "response", None)
+    if response is None:
+        return attributes
+    status_code = getattr(response, "status_code", None)
+    if isinstance(status_code, int):
+        attributes["error.http_status"] = status_code
+    headers = getattr(response, "headers", {}) or {}
+    request_id = headers.get("x-snowflake-request-id")
+    if isinstance(request_id, str) and request_id:
+        attributes["snowflake.request_id"] = request_id
+    try:
+        body = response.json()
+    except Exception:
+        return attributes
+    for candidate in _iter_error_dicts(body):
+        code = candidate.get("code") or candidate.get("error_code")
+        if code is not None:
+            attributes["error.code"] = str(code)
+            break
+    return attributes
+
+
+def _metric_identity(
+    operation: str,
+    arguments: Mapping[str, Any],
+    result: Any = None,
+) -> dict[str, Any]:
+    attributes = {}
+    for field in _METRIC_IDENTITY_FIELDS:
+        value = arguments.get(field)
+        if value is not None:
+            attributes[field] = (
+                list(value) if isinstance(value, (list, tuple)) else value
+            )
+    if operation == "create_job" and "job_id" not in attributes:
+        if isinstance(result, str):
+            attributes["job_id"] = result
+        elif isinstance(result, dict) and result.get("job_id") is not None:
+            attributes["job_id"] = result["job_id"]
+    if operation in _REQUEST_ID_RESULT_OPERATIONS and "request_id" not in attributes:
+        if isinstance(result, str):
+            attributes["request_id"] = result
+        elif isinstance(result, dict) and result.get("request_id") is not None:
+            attributes["request_id"] = result["request_id"]
+    return attributes
+
+
+def _track_operation(operation: str):
+    """Record one outcome metric around a public client operation."""
+
+    def decorate(method):
+        signature = inspect.signature(method)
+
+        @functools.wraps(method)
+        def wrapped(self, *args, **kwargs):
+            if getattr(self, "_metric_emitter", None) is None:
+                return method(self, *args, **kwargs)
+            state = getattr(self, "_operation_metric_state", None)
+            if state is None:
+                return method(self, *args, **kwargs)
+            active = getattr(state, "active", set())
+            if active:
+                return method(self, *args, **kwargs)
+            try:
+                bound = signature.bind(self, *args, **kwargs)
+                bound.apply_defaults()
+            except TypeError:
+                return method(self, *args, **kwargs)
+            except Exception:
+                logger.debug("client operation metric setup failed", exc_info=True)
+                return method(self, *args, **kwargs)
+            active = set()
+            active.add(operation)
+            state.active = active
+            state.attempt_count = 0
+            state.request_count = 0
+            started = time.monotonic()
+            try:
+                result = method(self, *args, **kwargs)
+            except Exception as exc:
+                self._emit_operation_outcome(
+                    operation,
+                    started,
+                    bound.arguments,
+                    error=exc,
+                )
+                raise
+            else:
+                self._emit_operation_outcome(
+                    operation,
+                    started,
+                    bound.arguments,
+                    result=result,
+                )
+                return result
+            finally:
+                state.active = set()
+                state.attempt_count = 0
+                state.request_count = 0
+
+        return wrapped
+
+    return decorate
+
+
 def _is_chunk_post_transient(exc: BaseException) -> bool:
     if isinstance(exc, requests.exceptions.HTTPError):
         if _chunk_group_error_detail(exc.response) is not None:
@@ -202,6 +376,30 @@ class JobType(str, Enum):
     TRAINING = "training"
     SAMPLING = "sampling"
     LOG_PROBABILITY = "log_probability"
+
+
+class Hardware(str, Enum):
+    """GPU hardware for create job and capacity.
+
+    Wire values match the REST ``hardware`` field; see
+    ``docs/reference/rest-api.md`` sections 5.1 and 5.4. Omitting it defaults to
+    H200 on the server. Unknown values are rejected client-side.
+    """
+
+    H200 = "H200"
+    B200 = "B200"
+    B300 = "B300"
+
+
+def _hardware_wire(hardware: Hardware | str) -> str:
+    """Return the wire spelling for ``hardware``."""
+    if isinstance(hardware, Hardware):
+        return hardware.value
+    try:
+        return Hardware(hardware).value
+    except ValueError as exc:
+        allowed = ", ".join(member.value for member in Hardware)
+        raise ValueError(f"hardware must be one of {allowed}, got {hardware!r}") from exc
 
 
 def _effective_primerl_config(extra: dict) -> dict:
@@ -890,6 +1088,8 @@ class CortexTrainingClient:
         # validation); a missing key means it has not been resolved yet (e.g. a
         # transient get_job failure), so a later call will retry.
         self._sampling_max_seq_len: dict[str, int | None] = {}
+        self._metric_emitter: OtlpMetricEmitter | None = None
+        self._operation_metric_state = threading.local()
         self._session = requests.Session()
         adapter = HTTPAdapter(pool_connections=pool_maxsize, pool_maxsize=pool_maxsize)
         self._session.mount("https://", adapter)
@@ -904,6 +1104,8 @@ class CortexTrainingClient:
         schema: str,
         endpoint: str = "cortex-training",
         verify_ssl: bool = True,
+        *,
+        telemetry_timeout: float = 3.0,
         **kwargs: Any,
     ) -> "CortexTrainingClient":
         """Authenticate with a Programmatic Access Token (PAT).
@@ -922,11 +1124,96 @@ class CortexTrainingClient:
         client._session.headers["Authorization"] = f"Bearer {pat}"
         client._session.headers["X-Snowflake-Authorization-Token-Type"] = "PROGRAMMATIC_ACCESS_TOKEN"
         client._session.verify = verify_ssl
+        if not _telemetry_disabled():
+            token_provider = CachedSessionTokenProvider(
+                client.base_url,
+                pat,
+                verify_ssl=verify_ssl,
+                timeout=telemetry_timeout,
+            )
+            client._metric_emitter = OtlpMetricEmitter(
+                client.base_url,
+                token_provider,
+                verify_ssl=verify_ssl,
+                timeout=telemetry_timeout,
+            )
         return client
 
     @property
     def _prefix(self) -> str:
         return f"{self.base_url}/api/v2/databases/{self.database}/schemas/{self.schema}/{self.endpoint}"
+
+    def emit_metric(
+        self,
+        operation: str,
+        value: Any = 1,
+        *,
+        attributes: dict[str, Any] | None = None,
+    ) -> None:
+        """Emit a best-effort OTLP log record used as a client metric.
+
+        PAT clients lazily exchange the PAT for a cached session token on the
+        first call. Local/mock clients, or clients constructed with
+        ``CORTEX_TRAINING_DISABLE_TELEMETRY`` set, treat this method as a no-op.
+        All authentication, discovery, and export errors are ignored.
+        """
+        try:
+            if self._metric_emitter is not None:
+                self._metric_emitter.emit(operation, value, attributes=attributes)
+        except Exception:
+            return
+
+    def close(self) -> None:
+        """Flush telemetry briefly and close this client's HTTP sessions."""
+        try:
+            if self._metric_emitter is not None:
+                self._metric_emitter.close()
+        except Exception:
+            logger.debug("client telemetry close failed", exc_info=True)
+        finally:
+            self._session.close()
+
+    def __enter__(self) -> "CortexTrainingClient":
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        self.close()
+
+    def _emit_operation_outcome(
+        self,
+        operation: str,
+        started: float,
+        arguments: Mapping[str, Any],
+        *,
+        result: Any = None,
+        error: BaseException | None = None,
+    ) -> None:
+        """Emit one structured outcome without changing the operation result."""
+        if self._metric_emitter is None:
+            return
+        if error is None and not _success_telemetry_enabled():
+            return
+        try:
+            attempt_count = int(
+                getattr(self._operation_metric_state, "attempt_count", 0)
+            )
+            request_count = int(
+                getattr(self._operation_metric_state, "request_count", 0)
+            )
+            value: dict[str, Any] = {
+                "attempt_count": attempt_count,
+                "duration_ms": round((time.monotonic() - started) * 1000, 3),
+                "request_count": request_count,
+                "retry_count": max(attempt_count - request_count, 0),
+                "success": error is None,
+            }
+            attributes = _metric_identity(operation, arguments, result)
+            if error is not None:
+                value["error_message"] = _safe_metric_error_message(error)
+                attributes.update(_metric_error_attributes(error))
+            self.emit_metric(operation, value, attributes=attributes)
+        except Exception:
+            logger.debug("client operation metric construction failed", exc_info=True)
 
     @staticmethod
     def _debug_json_summary(value: Any, *, limit: int = 2000) -> str:
@@ -966,10 +1253,22 @@ class CortexTrainingClient:
         debug_label = self._debug_context_label(debug_context) if debug_context is not None else None
         attempt_no = 0
         max_attempts = 1 + self.max_retries
+        try:
+            state = self._operation_metric_state
+            if getattr(state, "active", set()):
+                state.request_count = getattr(state, "request_count", 0) + 1
+        except Exception:
+            logger.debug("client operation request counting failed", exc_info=True)
 
         def attempt() -> requests.Response:
             nonlocal attempt_no
             attempt_no += 1
+            try:
+                state = self._operation_metric_state
+                if getattr(state, "active", set()):
+                    state.attempt_count = getattr(state, "attempt_count", 0) + 1
+            except Exception:
+                logger.debug("client operation attempt counting failed", exc_info=True)
             if debug_label is not None:
                 logger.debug(
                     "%s sending %s %s attempt=%d/%d",
@@ -1042,21 +1341,56 @@ class CortexTrainingClient:
 
     # ─── Job management ──────────────────────────────────────────────────
 
+    @_track_operation("create_job")
     def create_job(
         self,
         sub_jobs: list[SubJobConfig],
         job_id: str | None = None,
         experiment_name: str | None = None,
+        hardware: Hardware | str | None = None,
+        idle_timeout_seconds: int | None = None,
+        pending_timeout_seconds: int | None = None,
     ) -> str:
         """Create a job from a list of sub-jobs and return its server job_id.
 
         Each :class:`SubJobConfig` is validated client-side before the request
-        is sent (see :meth:`SubJobConfig.validate`). ``job_id`` is optional;
+        is sent (see :meth:`SubJobConfig.validate`). A job supports zero or one
+        ``training`` sub-job and any number of ``sampling`` /
+        ``log_probability`` sub-jobs. ``job_id`` is optional;
         when omitted the server generates one. ``experiment_name`` is optional;
         when omitted the server auto-creates an experiment for the job.
+        ``hardware`` is optional (:class:`Hardware`.H200 / .B200 / .B300); when
+        set, all sub-jobs in the job run on that GPU type. Omitted defaults to
+        H200.
+        ``idle_timeout_seconds`` bounds how long the job may sit idle before the
+        server reclaims it: ``0`` disables reclamation, any other value must be
+        between 300 and 604,800. ``pending_timeout_seconds`` bounds how long the
+        job may wait for capacity before failing with ``pending_timeout``: between
+        300 and 604,800, with no disable value. Omit either to use the server
+        default, currently 30 minutes for idle and 24 hours for pending.
         """
         if not sub_jobs:
             raise ValueError("create_job requires a non-empty sub_jobs list")
+        if idle_timeout_seconds is not None:
+            if isinstance(idle_timeout_seconds, bool) or not isinstance(
+                idle_timeout_seconds, int
+            ):
+                raise ValueError("idle_timeout_seconds must be an integer")
+            if idle_timeout_seconds != 0 and not (
+                300 <= idle_timeout_seconds <= 604_800
+            ):
+                raise ValueError(
+                    "idle_timeout_seconds must be 0 or between 300 and 604800"
+                )
+        if pending_timeout_seconds is not None:
+            if isinstance(pending_timeout_seconds, bool) or not isinstance(
+                pending_timeout_seconds, int
+            ):
+                raise ValueError("pending_timeout_seconds must be an integer")
+            if not (300 <= pending_timeout_seconds <= 604_800):
+                raise ValueError(
+                    "pending_timeout_seconds must be between 300 and 604800"
+                )
         for sj in sub_jobs:
             sj.validate()
         body: dict = {"sub_job_configs": [sj.to_wire() for sj in sub_jobs]}
@@ -1064,19 +1398,38 @@ class CortexTrainingClient:
             body["job_id"] = job_id
         if experiment_name is not None:
             body["experiment_name"] = experiment_name
+        if hardware is not None:
+            body["hardware"] = _hardware_wire(hardware)
+        if idle_timeout_seconds is not None:
+            body["idle_timeout_seconds"] = idle_timeout_seconds
+        if pending_timeout_seconds is not None:
+            body["pending_timeout_seconds"] = pending_timeout_seconds
         return self.create_job_from_body(body)["job_id"]
 
+    @_track_operation("create_job")
     def create_job_from_body(self, body: dict) -> dict:
         """Create a job from a raw REST CreateJob request body.
 
         This is useful for tooling that already has the REST JSON payload,
         while :meth:`create_job` remains the typed path for Python callers.
+
+        A job supports zero or one ``training`` sub-job and any number of
+        ``sampling`` / ``log_probability`` sub-jobs; a second training sub-job
+        raises :class:`ValueError` before the request is sent.
         """
         if not isinstance(body, dict):
             raise ValueError("create_job_from_body requires a JSON object")
         sub_job_configs = body.get("sub_job_configs")
         if not isinstance(sub_job_configs, list) or not sub_job_configs:
             raise ValueError("create_job_from_body requires a non-empty sub_job_configs list")
+        training_sub_jobs = sum(
+            1
+            for cfg in sub_job_configs
+            if isinstance(cfg, dict)
+            and str(cfg.get("job_type") or "").strip().lower() == JobType.TRAINING.value
+        )
+        if training_sub_jobs > 1:
+            raise ValueError("at most one training sub-job is supported per job")
         if body.get("debug") and not _debug_options_enabled():
             raise ValueError(
                 "create-job debug options are an internal-only capability; set "
@@ -1105,6 +1458,7 @@ class CortexTrainingClient:
         time.sleep(min(delay, remaining))
         return min(delay * self.poll_backoff_multiplier, self.poll_max_interval)
 
+    @_track_operation("wait_for_job")
     def wait_for_job(self, job_id: str) -> dict:
         """Poll until the job reaches ``running``. Raises on terminal states or timeout."""
         deadline = time.monotonic() + self.poll_timeout
@@ -1120,10 +1474,12 @@ class CortexTrainingClient:
             delay = self._sleep_with_backoff(delay, deadline)
         raise TimeoutError(f"Job {job_id} did not become running within {self.poll_timeout}s")
 
+    @_track_operation("get_job")
     def get_job(self, job_id: str) -> dict:
         resp = self._send("GET", f"{self._prefix}/{job_id}")
         return resp.json()
 
+    @_track_operation("list_jobs")
     def list_jobs(self, status: str | None = None) -> list:
         params = {}
         if status is not None:
@@ -1131,17 +1487,21 @@ class CortexTrainingClient:
         resp = self._send("GET", self._prefix, params=params)
         return resp.json().get("jobs", [])
 
+    @_track_operation("cancel_job")
     def cancel_job(self, job_id: str) -> None:
         # The REST API uses colon-action syntax: /{jobId}:cancel
         self._send("POST", f"{self._prefix}/{job_id}:cancel")
 
-    def get_capacity(self) -> dict:
+    @_track_operation("get_capacity")
+    def get_capacity(self, hardware: Hardware | str | None = None) -> dict:
         """Return the calling account's reserved GPU capacity and current usage.
 
         Backed by the account-scoped endpoint ``/cortex-training/capacity``
         (not under ``/{job_id}``). The account is resolved server-side from the
         caller's session — never from a request field — so a caller can only
-        ever read its own account's capacity.
+        ever read its own account's capacity. Optional ``hardware``
+        (:class:`Hardware`.H200 / .B200 / .B300) is sent as a query parameter and
+        scopes the numbers to that GPU type; omitted defaults to H200.
 
         The returned dict always carries all four fields. The server emits
         proto3 JSON, which omits zero/false fields (an unreserved account's
@@ -1160,7 +1520,14 @@ class CortexTrainingClient:
         See ``docs/reference/rest-api.md`` section 5.4 for the authoritative
         field list.
         """
-        resp = self._send("GET", f"{self._prefix}/capacity")
+        params = {}
+        if hardware is not None:
+            params["hardware"] = _hardware_wire(hardware)
+        resp = self._send(
+            "GET",
+            f"{self._prefix}/capacity",
+            **({"params": params} if params else {}),
+        )
         body = resp.json()
         return {
             "has_reservation": bool(body.get("has_reservation", False)),
@@ -1169,6 +1536,7 @@ class CortexTrainingClient:
             "available_gpus": int(body.get("available_gpus", 0)),
         }
 
+    @_track_operation("get_experiment_run")
     def get_experiment_run(self, job_id: str) -> dict[str, str]:
         """Return ``{experiment_name, experiment_run_name}`` for ``job_id``.
 
@@ -1192,6 +1560,7 @@ class CortexTrainingClient:
             raise ValueError(f"SQL query returned no rows: {statement}")
         return rows[0][0]
 
+    @_track_operation("fetch_execution_logs")
     def fetch_execution_logs(self, job_id: str) -> list[dict[str, str]]:
         """Download every log file under the job's experiment run stage.
 
@@ -1411,6 +1780,7 @@ class CortexTrainingClient:
             raise RuntimeError(f"{operation} produced no request body")
         return final_body
 
+    @_track_operation("forward_backward")
     def forward_backward(self, job_id: str, data: bytes) -> str:
         """Submit a forward+backward pass. Returns request_id."""
         self._fwd_bwd_send_count += 1
@@ -1450,6 +1820,7 @@ class CortexTrainingClient:
         )
         return request_id
 
+    @_track_operation("generate")
     def generate(
         self,
         job_id: str,
@@ -1499,6 +1870,7 @@ class CortexTrainingClient:
         self._generate_request_ids.add(request_id)
         return request_id
 
+    @_track_operation("generate_stream")
     def generate_stream(
         self,
         job_id: str,
@@ -1535,6 +1907,7 @@ class CortexTrainingClient:
         )
         return resp.json()
 
+    @_track_operation("step")
     def step(self, job_id: str, learning_rate: float | None = None) -> str:
         """Submit an optimizer step. Returns request_id."""
         body: dict = {}
@@ -1543,6 +1916,7 @@ class CortexTrainingClient:
         resp = self._send("POST", f"{self._prefix}/{job_id}/step", json=body)
         return resp.json()["request_id"]
 
+    @_track_operation("save")
     def save(
         self,
         job_id: str,
@@ -1561,6 +1935,7 @@ class CortexTrainingClient:
         resp = self._send("POST", f"{self._prefix}/{job_id}/save", json=body)
         return resp.json()["request_id"]
 
+    @_track_operation("load")
     def load(
         self,
         job_id: str,
@@ -1584,9 +1959,9 @@ class CortexTrainingClient:
 
         **When to use target_sub_job_id:**
 
-        Use this when working with sessions that have multiple training
-        sub-jobs (e.g., multi-DP configurations) and you need to load
-        checkpoints into a specific sub-job rather than the default.
+        A job has at most one training sub-job, so omitting this routes to that
+        sub-job. Pass it when you want explicit routing rather than relying on
+        the server's default resolution.
 
         **Discovering sub-job IDs:**
 
@@ -1647,6 +2022,7 @@ class CortexTrainingClient:
         resp = self._send("POST", f"{self._prefix}/{job_id}/operation", json=body)
         return resp.json()
 
+    @_track_operation("forward")
     def forward(
         self,
         job_id: str,
@@ -1706,6 +2082,7 @@ class CortexTrainingClient:
             sub_job_type=sub_job_type,
         )
 
+    @_track_operation("weight_sync")
     def weight_sync(
         self,
         job_id: str,
@@ -1757,6 +2134,7 @@ class CortexTrainingClient:
             sub_job_type=(sub_job_type if sub_job_type is not None else "training"),
         )["request_id"]
 
+    @_track_operation("bootstrap_router_replay")
     def bootstrap_router_replay(
         self,
         job_id: str,
@@ -1782,6 +2160,7 @@ class CortexTrainingClient:
             sub_job_type=sub_job_type,
         )
 
+    @_track_operation("router_replay_discard")
     def router_replay_discard(
         self,
         job_id: str,
@@ -1802,6 +2181,7 @@ class CortexTrainingClient:
             sub_job_type=sub_job_type,
         )
 
+    @_track_operation("reset_prefix_cache")
     def reset_prefix_cache(
         self,
         job_id: str,
@@ -1919,6 +2299,7 @@ class CortexTrainingClient:
         status["events"] = decoded
         return status
 
+    @_track_operation("poll_request")
     def poll_request(self, job_id: str, request_id: str) -> dict:
         """Poll until the async request completes. Returns the result dict."""
         deadline = time.monotonic() + self.poll_timeout
@@ -1985,6 +2366,7 @@ class CortexTrainingClient:
         self._generate_request_ids.discard(request_id)
         raise TimeoutError(f"Request {request_id} did not complete within {self.poll_timeout}s")
 
+    @_track_operation("get_request_status")
     def get_request_status(
         self,
         job_id: str,
@@ -2007,6 +2389,7 @@ class CortexTrainingClient:
         )
         return self._decode_stream_result_events(resp.json())
 
+    @_track_operation("cancel_request")
     def cancel_request(
         self,
         job_id: str,
@@ -2175,10 +2558,12 @@ class CortexTrainingClient:
 
     # ─── Checkpoints ─────────────────────────────────────────────────────
 
+    @_track_operation("list_checkpoints")
     def list_checkpoints(self, job_id: str) -> list:
         resp = self._send("GET", f"{self._prefix}/{job_id}/checkpoints")
         return resp.json().get("checkpoints", [])
 
+    @_track_operation("export_checkpoint")
     def export_checkpoint(self, job_id: str, checkpoint_id: str) -> dict:
         # The REST API uses colon-action syntax: /{jobId}/checkpoints/{cpId}:export
         resp = self._send(
@@ -2187,6 +2572,7 @@ class CortexTrainingClient:
         )
         return resp.json()
 
+    @_track_operation("delete_checkpoint")
     def delete_checkpoint(self, job_id: str, checkpoint_id: str) -> None:
         """Delete a checkpoint. Returns None on success."""
         self._send("DELETE", f"{self._prefix}/{job_id}/checkpoints/{checkpoint_id}")

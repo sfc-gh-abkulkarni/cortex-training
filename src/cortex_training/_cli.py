@@ -80,6 +80,12 @@ def _load_forward_backward_payload_builder():
     return build_forward_backward_payload
 
 
+def _hardware_choices() -> list[str]:
+    from .client import Hardware
+
+    return [member.value for member in Hardware]
+
+
 def _created_epoch(raw: Any) -> float | None:
     if raw is None:
         return None
@@ -213,9 +219,14 @@ def build_parser(
     list_jobs = subparsers.add_parser("list", help="List Cortex Training jobs.")
     list_jobs.add_argument("--status", help="Optional status filter.")
 
-    subparsers.add_parser(
+    capacity = subparsers.add_parser(
         "capacity",
         help="Show reserved GPU capacity and current usage for the caller account.",
+    )
+    capacity.add_argument(
+        "--hardware",
+        choices=_hardware_choices(),
+        help="GPU hardware to report on. Defaults to H200.",
     )
 
     cancel = subparsers.add_parser("cancel", help="Cancel one Cortex Training job.")
@@ -258,8 +269,8 @@ def build_parser(
         dest="target_sub_job_id",
         help=(
             "Training sub-job to load the checkpoint into, e.g. JOB_ID:training:0. "
-            "Use this for sessions with multiple training sub-jobs when you need "
-            "explicit routing control. Omit to use the default training sub-job. "
+            "Use this when you need explicit routing control; a job has at most one "
+            "training sub-job, so omitting it uses that sub-job. "
             "Use 'cortex-training get JOB_ID' to discover available sub-job IDs."
         ),
     )
@@ -603,6 +614,14 @@ def _validate_create_job_body(body: dict[str, Any]) -> None:
     sub_job_configs = body.get("sub_job_configs")
     if not isinstance(sub_job_configs, list) or not sub_job_configs:
         raise ValueError("job JSON must contain a non-empty sub_job_configs list")
+    # Mirrors client.create_job_from_body; submit --dry-run never builds a client.
+    training_sub_jobs = sum(
+        1
+        for cfg in sub_job_configs
+        if isinstance(cfg, dict) and str(cfg.get("job_type") or "").strip().lower() == "training"
+    )
+    if training_sub_jobs > 1:
+        raise ValueError("at most one training sub-job is supported per job")
 
 
 def _print_json(value: Any, stdout: TextIO, *, compact: bool) -> None:
@@ -872,7 +891,9 @@ def _run(
         _print_json({"jobs": _jobs_latest_last(jobs)}, stdout, compact=args.compact)
         return 0
     if args.command == "capacity":
-        _print_json(client.get_capacity(), stdout, compact=args.compact)
+        _print_json(
+            client.get_capacity(hardware=args.hardware), stdout, compact=args.compact
+        )
         return 0
     if args.command == "cancel":
         client.cancel_job(args.job_id)

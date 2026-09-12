@@ -69,21 +69,16 @@ is `log_prob`.
   Poll the request until it reaches a terminal state.
 - Some generic operations are synchronous and return their result directly.
 
-### 1.4 Model cache
+### 1.4 Supported models
 
-The following models are currently in the model cache:
+The machine-readable source of truth for model availability, workflow support,
+context limits, and recommended configurations is
+[`model-catalog/models.json`](../../model-catalog/models.json). Referenced
+profiles live under [`model-catalog/profiles/`](../../model-catalog/profiles/).
 
-| Model | Training | Inference |
-|---|:---:|:---:|
-| `Qwen/Qwen3-0.6B` | ✅ | ✅ |
-| `Qwen/Qwen3-1.7B` | ✅ | ✅ |
-| `Qwen/Qwen3-8B` | ✅ | ✅ |
-| `Qwen/Qwen3.5-4B` | ✅ | ✅ |
-| `Qwen/Qwen3.6-35B-A3B` | ✅ | ✅ |
-| `deepseek-ai/DeepSeek-V4-Flash-0731` |  | ✅ |
-| `openai/gpt-oss-120b` |  | ✅ |
-| `zai-org/GLM-5.2` | coming soon | ✅ |
-| `zai-org/GLM-5.2-FP8` | coming soon | ✅ |
+This API reference does not duplicate the model table. Run
+`python scripts/validate_model_catalog.py` after changing the catalog or a
+profile.
 
 ---
 
@@ -303,6 +298,9 @@ Typed Python call:
 job_id = client.create_job(
     sub_jobs=[training_sub_job, sampling_sub_job],
     experiment_name=None,
+    hardware="B200",
+    idle_timeout_seconds=1800,
+    pending_timeout_seconds=86400,
 )
 ```
 
@@ -320,13 +318,56 @@ REST body:
       }
     }
   ],
-  "experiment_name": "optional-experiment"
+  "experiment_name": "optional-experiment",
+  "hardware": "B200"
+  "idle_timeout_seconds": 1800,
+  "pending_timeout_seconds": 86400
 }
 ```
 
-`sub_job_configs` must be a non-empty list. The typed path validates each
-`SubJobConfig`; `create_job_from_body()` only checks the outer body and non-empty
-list before forwarding it.
+`sub_job_configs` must be a non-empty list carrying **zero or one** `training`
+sub-job and any number of `sampling` / `log_probability` sub-jobs. A second
+training sub-job is rejected with `at most one training sub-job is supported per
+job`; the server enforces the same rule for every caller.
+
+The typed path validates each `SubJobConfig`; `create_job_from_body()` checks the
+outer body, the non-empty list, and the training-sub-job count before forwarding
+it.
+
+#### GPU hardware - `hardware`
+
+Optional. One of `H200`, `B200`, or `B300`; every sub-job in the job runs on
+that GPU type. Omitted means `H200`. Any other value is rejected — the typed
+`create_job()` path raises `ValueError` before sending, and the server rejects
+an unknown value on the raw `create_job_from_body()` path. The typed path also
+accepts the `Hardware` enum (`Hardware.B200`) in place of the string.
+#### `idle_timeout_seconds`
+
+Optional. Bounds how long the job may sit idle before the server reclaims it.
+
+| Value | Behavior |
+|---|---|
+| Omitted | Server default applies, currently 30 minutes. |
+| `0` | Disables reclamation for this job. Not a zero-second timeout — the job is not reclaimed for being idle, though it can still be cancelled or terminated. |
+| `300` through `604800` | Use that many seconds. |
+
+Negative values, `1`-`299`, values above `604800`, and non-integers are rejected.
+
+#### `pending_timeout_seconds`
+
+Optional. Bounds how long the job may stay `pending` waiting for capacity before
+it fails with reason `pending_timeout`.
+
+| Value | Behavior |
+|---|---|
+| Omitted | Server default applies, currently 24 hours. |
+| `300` through `604800` | Use that many seconds. |
+
+There is no disable value: `0` is rejected, along with negatives, `1`-`299`,
+values above `604800`, and non-integers.
+
+When either field is set, Get job and List jobs echo it back; when omitted it may
+be absent from those responses.
 
 Response:
 
@@ -393,6 +434,17 @@ The client forwards the status string without validating an enum.
 
 This account-scoped endpoint takes no account id from the caller. The server
 resolves the account from the authenticated session.
+
+Optional query:
+
+```text
+?hardware=B200
+```
+
+`hardware` scopes the numbers to one GPU type and takes the same values as the
+create-job field: `H200`, `B200`, or `B300`, defaulting to `H200` when omitted.
+`get_capacity()` sends the parameter only when you pass one, and rejects an
+unknown value client-side.
 
 ```json
 {
@@ -628,8 +680,9 @@ is supplied, the client lowercases and validates it as:
 The backend default is `resumable`.
 
 Compatibility caveat: `checkpoint_id` is not represented in the server's
-`SaveRequest`, so a caller-selected value is not forwarded. Treat the
-`checkpoint_id` returned by the polled result as authoritative.
+`SaveRequest`, so a caller-selected value is not forwarded. Use the
+server-assigned id from the result's `stage_path` or the job's checkpoint list
+(below), rather than relying on a caller-selected value.
 
 Immediate response:
 
@@ -637,8 +690,24 @@ Immediate response:
 {"request_id": "request-id", "job_id": "job-id"}
 ```
 
-Typical result fields include `checkpoint_id`, `checkpoint_path`, and
-`checkpoint_tag`; consumers should use the fields actually present.
+On `release_20260903_175601`, the polled `weights-only` save result observed on
+2026-09-07 carries no `checkpoint_id` key:
+
+```json
+{
+  "job_id": "job-id:training:0",
+  "stage_path": "s3://<stage>/.../checkpoints/cp_00000000-0000-4000-8000-000000000001/global_step1/",
+  "checkpoint_path": "/tmp/dss.ray_dss/ds/job-<job-id>:training:0/weights-only",
+  "checkpoint_tag": "global_step1",
+  "version": 1.0
+}
+```
+
+The durable checkpoint id is the `cp_<uuid>` path segment of `stage_path`
+(`/checkpoints/(cp_[0-9a-fA-F-]+)/`), and `GET /{job_id}/checkpoints` lists the
+same id with its `checkpoint_type` and `created_at`. Resolve the id from either;
+`checkpoint_path` is a mount inside the saving job's containers and does not
+resolve from any other job.
 
 ### 6.4 Runtime load - `POST /{job_id}/load`
 
@@ -684,14 +753,13 @@ for sj in training_sub_jobs:
     print(f"ID: {sj['sub_job_id']}, DP size: {sj['training_config']['n_gpus']}")
 ```
 
-#### When to use target_sub_job_id
+#### When to use target_sub_job_id (load)
 
-Most sessions have a single training sub-job, so omit `target_sub_job_id` to use
-the default. Use it when:
-
-- The session has multiple training sub-jobs
-- You need to load different checkpoints into different sub-jobs
-- You want explicit routing control
+A job has at most one training sub-job, so omit `target_sub_job_id` to use the
+default. Use it when you want explicit routing control — for example naming the
+sub-job in tooling that must not rely on the server's default resolution. It
+selects a training sub-job; the sampling-side selector is `target_sub_job_ids` on
+weight sync.
 
 #### DP size compatibility
 
@@ -1458,7 +1526,7 @@ These are conventional backend results, not closed REST schemas:
 |---|---|
 | `forward-backward` | `job_id`, `avg_loss`, `metrics`, `post_process_outputs` |
 | `step` | `global_steps`, `last_lr`, optional `peak_memory` |
-| `save` | `checkpoint_id`, `checkpoint_path`, `checkpoint_tag` |
+| `save` | `job_id`, `stage_path` (carries the `cp_<uuid>` id), `checkpoint_path`, `checkpoint_tag`, `version` — no `checkpoint_id` key in the observed release (see 6.3) |
 | `load` | `checkpoint_id` and backend load metadata |
 | `generate` | `job_id`, `results[]` |
 | `weight-sync` | Completion/transfer metadata |
@@ -1575,28 +1643,38 @@ client.poll_request(job_id, request_id)
 ### 13.3 Save and runtime load
 
 ```python
-request_id = client.save(job_id, checkpoint_type="resumable")
-checkpoint = client.poll_request(job_id, request_id)
+from datetime import datetime
 
-request_id = client.load(
-    job_id,
-    checkpoint_id=checkpoint["checkpoint_id"],
-)
+request_id = client.save(job_id, checkpoint_type="resumable")
+client.poll_request(job_id, request_id)
+# Select the latest resumable checkpoint without assuming list order.
+checkpoint_id = max(
+    (cp for cp in client.list_checkpoints(job_id) if cp["checkpoint_type"] == "resumable"),
+    key=lambda cp: datetime.fromisoformat(cp["created_at"].replace("Z", "+00:00")),
+)["checkpoint_id"]
+
+request_id = client.load(job_id, checkpoint_id=checkpoint_id)
 client.poll_request(job_id, request_id)
 ```
 
 ### 13.4 Start sampling from saved weights
 
 ```python
+from datetime import datetime
+
 request_id = client.save(training_job_id, checkpoint_type="weights-only")
-checkpoint = client.poll_request(training_job_id, request_id)
+client.poll_request(training_job_id, request_id)
+checkpoint_id = max(
+    (cp for cp in client.list_checkpoints(training_job_id) if cp["checkpoint_type"] == "weights-only"),
+    key=lambda cp: datetime.fromisoformat(cp["created_at"].replace("Z", "+00:00")),
+)["checkpoint_id"]
 
 sampling = SubJobConfig.sampling_job(
     model_name="Qwen/Qwen3-1.7B",
     max_seq_len=2048,
     n_gpus=1,
     source_checkpoint_info={
-        "checkpoint_id": checkpoint["checkpoint_id"],
+        "checkpoint_id": checkpoint_id,
         "source_job_id": training_job_id,
     },
 )
@@ -1683,8 +1761,8 @@ result = client.poll_request(job_id, request_id)
 These are current gaps, not supported API behavior:
 
 1. `save(checkpoint_id=...)` sends a field that is absent from the server's
-   `SaveRequest`, so a caller-selected id is not honored. Use the
-   `checkpoint_id` returned in the save result.
+   `SaveRequest`, so a caller-selected id is not honored. Use the server-assigned
+   id from `stage_path` or the job's checkpoint list (section 6.3).
 2. Generic `forward()` wraps binary input in a base64 JSON payload, while the
    server's `/forward` route expects raw DSSST1 bytes, so byte-based
    `forward()` is not end-to-end compatible. Request construction is

@@ -58,6 +58,7 @@ TrainingConfig = nc.TrainingConfig
 InferenceConfig = nc.InferenceConfig
 SubJobConfig = nc.SubJobConfig
 CortexTrainingClient = nc.CortexTrainingClient
+Hardware = nc.Hardware
 
 
 def _wire_load(data: bytes):
@@ -611,6 +612,55 @@ class TestClientConstruction:
         assert c._session.headers["Authorization"] == "Bearer tok-xyz"
         assert c._session.headers["X-Snowflake-Authorization-Token-Type"] == "PROGRAMMATIC_ACCESS_TOKEN"
         assert c._session.verify is False
+        assert c._metric_emitter is not None
+        assert c._metric_emitter.timeout == 3.0
+
+    def test_from_pat_skips_telemetry_when_disabled(self, monkeypatch):
+        monkeypatch.setenv(nc.DISABLE_TELEMETRY_ENV, "1")
+        c = CortexTrainingClient.from_pat(
+            host="x.test",
+            pat="tok-xyz",
+            database="DB",
+            schema="SCH",
+        )
+        assert c._metric_emitter is None
+        assert c.emit_metric("event") is None
+
+    def test_from_pat_propagates_telemetry_timeout(self):
+        c = CortexTrainingClient.from_pat(
+            host="x.test",
+            pat="tok-xyz",
+            database="DB",
+            schema="SCH",
+            telemetry_timeout=1.5,
+        )
+        assert c._metric_emitter.timeout == 1.5
+        assert c._metric_emitter.token_provider.timeout == 1.5
+
+    def test_emit_metric_is_noop_without_pat(self):
+        c = CortexTrainingClient(base_url="http://x.test", database="DB", schema="SCH")
+        assert c.emit_metric("event") is None
+
+    def test_emit_metric_swallows_unexpected_emitter_errors(self):
+        c = CortexTrainingClient(base_url="http://x.test", database="DB", schema="SCH")
+        c._metric_emitter = MagicMock()
+        c._metric_emitter.emit.side_effect = RuntimeError("boom")
+
+        assert c.emit_metric("event", 2, attributes={"operation": "test"}) is None
+
+    def test_close_releases_metric_emitter_and_http_session(self):
+        c = _make_client()
+        c._metric_emitter = MagicMock()
+        c.close()
+        c._metric_emitter.close.assert_called_once()
+        c._session.close.assert_called_once()
+
+    def test_telemetry_close_error_does_not_skip_http_session_close(self):
+        c = _make_client()
+        c._metric_emitter = MagicMock()
+        c._metric_emitter.close.side_effect = RuntimeError("telemetry close failed")
+        c.close()
+        c._session.close.assert_called_once()
 
     def test_no_legacy_auth_methods(self):
         # Production client only supports PAT.
@@ -619,6 +669,261 @@ class TestClientConstruction:
         assert not hasattr(CortexTrainingClient, "build_training_sub_job")
         assert not hasattr(CortexTrainingClient, "build_sampling_sub_job")
         assert not hasattr(CortexTrainingClient, "create_training_engine")
+
+
+class TestOperationMetrics:
+    TRACKED_METHODS = {
+        "create_job",
+        "create_job_from_body",
+        "wait_for_job",
+        "get_job",
+        "list_jobs",
+        "cancel_job",
+        "get_capacity",
+        "get_experiment_run",
+        "fetch_execution_logs",
+        "forward_backward",
+        "generate",
+        "generate_stream",
+        "step",
+        "save",
+        "load",
+        "forward",
+        "weight_sync",
+        "bootstrap_router_replay",
+        "router_replay_discard",
+        "reset_prefix_cache",
+        "poll_request",
+        "get_request_status",
+        "cancel_request",
+        "list_checkpoints",
+        "export_checkpoint",
+        "delete_checkpoint",
+    }
+
+    def test_essential_operations_are_tracked(self):
+        for method_name in self.TRACKED_METHODS:
+            assert hasattr(getattr(CortexTrainingClient, method_name), "__wrapped__")
+
+    def test_success_metric_is_omitted_by_default(self, monkeypatch):
+        monkeypatch.delenv(nc.ENABLE_SUCCESS_TELEMETRY_ENV, raising=False)
+        c = _make_client(post_json={"request_id": "r1"})
+        c._metric_emitter = MagicMock()
+
+        assert c.step("job-1") == "r1"
+        c._metric_emitter.emit.assert_not_called()
+
+    def test_success_metric_has_operation_job_and_duration(self, monkeypatch):
+        monkeypatch.setenv(nc.ENABLE_SUCCESS_TELEMETRY_ENV, "1")
+        c = _make_client(post_json={"request_id": "r1"})
+        c._metric_emitter = MagicMock()
+
+        assert c.step("job-1", learning_rate=1e-4) == "r1"
+
+        c._metric_emitter.emit.assert_called_once()
+        operation, value = c._metric_emitter.emit.call_args.args
+        attributes = c._metric_emitter.emit.call_args.kwargs["attributes"]
+        assert operation == "step"
+        assert value["success"] is True
+        assert value["duration_ms"] >= 0
+        assert value["attempt_count"] == 1
+        assert value["request_count"] == 1
+        assert value["retry_count"] == 0
+        assert attributes == {"job_id": "job-1", "request_id": "r1"}
+
+    def test_client_validation_error_metric_preserves_original_error(self):
+        c = _make_client()
+        c._metric_emitter = MagicMock()
+
+        with pytest.raises(ValueError, match="checkpoint_type"):
+            c.save("job-1", checkpoint_type="invalid")
+
+        operation, value = c._metric_emitter.emit.call_args.args
+        attributes = c._metric_emitter.emit.call_args.kwargs["attributes"]
+        assert operation == "save"
+        assert value["success"] is False
+        assert value["attempt_count"] == 0
+        assert value["request_count"] == 0
+        assert value["retry_count"] == 0
+        assert "checkpoint_type" in value["error_message"]
+        assert attributes == {
+            "job_id": "job-1",
+            "error.type": "ValueError",
+        }
+        assert c._operation_metric_state.active == set()
+
+    def test_http_error_metric_has_status_code_and_request_id(self):
+        c = _make_client()
+        c._metric_emitter = MagicMock()
+        response = _make_error_response({"code": "CORTEX_TRAINING_BAD_REQUEST"}, 400)
+        response.headers["x-snowflake-request-id"] = "sf-request-1"
+        c._session.post.return_value = response
+
+        with pytest.raises(nc.requests.exceptions.HTTPError):
+            c.step("job-1")
+
+        _, value = c._metric_emitter.emit.call_args.args
+        attributes = c._metric_emitter.emit.call_args.kwargs["attributes"]
+        assert value["success"] is False
+        assert value["attempt_count"] == 1
+        assert value["request_count"] == 1
+        assert value["retry_count"] == 0
+        assert attributes == {
+            "job_id": "job-1",
+            "error.type": "HTTPError",
+            "error.http_status": 400,
+            "snowflake.request_id": "sf-request-1",
+            "error.code": "CORTEX_TRAINING_BAD_REQUEST",
+        }
+
+    def test_retry_attempts_are_summarized_in_final_metric(self, monkeypatch):
+        monkeypatch.setenv(nc.ENABLE_SUCCESS_TELEMETRY_ENV, "1")
+        c = _make_client()
+        c.max_retries = 1
+        c._metric_emitter = MagicMock()
+        c._session.post.side_effect = [
+            _make_error_response({"code": "TEMPORARY"}, 503),
+            _make_response({"request_id": "r1"}),
+        ]
+        monkeypatch.setattr(
+            nc,
+            "wait_exponential_jitter",
+            lambda **kwargs: lambda retry_state: 0,
+        )
+
+        assert c.step("job-1") == "r1"
+
+        operation, value = c._metric_emitter.emit.call_args.args
+        assert operation == "step"
+        assert value["success"] is True
+        assert value["request_count"] == 1
+        assert value["attempt_count"] == 2
+        assert value["retry_count"] == 1
+
+    def test_create_job_delegation_emits_only_one_metric_with_returned_job_id(
+        self, monkeypatch
+    ):
+        monkeypatch.setenv(nc.ENABLE_SUCCESS_TELEMETRY_ENV, "1")
+        c = _make_client(post_json={"job_id": "server-job"})
+        c._metric_emitter = MagicMock()
+        sub_job = SubJobConfig.sampling_job(
+            model_name="gpt2",
+            max_seq_len=128,
+            n_gpus=1,
+        )
+
+        assert c.create_job([sub_job]) == "server-job"
+
+        c._metric_emitter.emit.assert_called_once()
+        operation, value = c._metric_emitter.emit.call_args.args
+        attributes = c._metric_emitter.emit.call_args.kwargs["attributes"]
+        assert operation == "create_job"
+        assert value["success"] is True
+        assert attributes == {"job_id": "server-job"}
+
+    def test_sub_job_identity_is_included(self, monkeypatch):
+        monkeypatch.setenv(nc.ENABLE_SUCCESS_TELEMETRY_ENV, "1")
+        c = _make_client(post_json={"request_id": "r1"})
+        c._metric_emitter = MagicMock()
+
+        c.weight_sync(
+            "job-1",
+            source_sub_job_id="job-1:training:0",
+            target_sub_job_ids=["job-1:sampling:0"],
+        )
+
+        attributes = c._metric_emitter.emit.call_args.kwargs["attributes"]
+        assert attributes == {
+            "job_id": "job-1",
+            "source_sub_job_id": "job-1:training:0",
+            "target_sub_job_ids": ["job-1:sampling:0"],
+            "request_id": "r1",
+        }
+
+    def test_operation_payload_is_never_copied_into_metric_attributes(
+        self, monkeypatch
+    ):
+        monkeypatch.setenv(nc.ENABLE_SUCCESS_TELEMETRY_ENV, "1")
+        c = _make_client(post_json={"request_id": "r1"})
+        c._metric_emitter = MagicMock()
+
+        c.forward_backward("job-1", b"customer-payload")
+
+        attributes = c._metric_emitter.emit.call_args.kwargs["attributes"]
+        assert attributes == {"job_id": "job-1", "request_id": "r1"}
+        assert "customer-payload" not in repr(c._metric_emitter.emit.call_args)
+
+    def test_error_message_redacts_obvious_secrets(self):
+        error = RuntimeError(
+            'request failed Authorization: Bearer secret-pat password="secret"'
+        )
+        message = nc._safe_metric_error_message(error)
+        assert "secret-pat" not in message
+        assert '"secret"' not in message
+        assert message.count("<redacted>") == 2
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            '{"token": "LEAKED-PAT"}',
+            '{"password": "hunter2"}',
+            "apikey=LEAKED",
+            "api_key: LEAKED",
+            "pat=LEAKED",
+            "private_key='LEAKED'",
+            "refresh_token=LEAKED",
+            "Authorization: Snowflake Token=\"LEAKED\"",
+        ],
+    )
+    def test_error_message_redacts_json_and_credential_aliases(self, message):
+        redacted = nc._safe_metric_error_message(RuntimeError(message))
+        assert "LEAKED" not in redacted
+        assert "hunter2" not in redacted
+        assert "<redacted>" in redacted
+
+    def test_missing_metric_state_never_changes_operation_behavior(self):
+        c = _make_client(post_json={"request_id": "r1"})
+        del c._operation_metric_state
+        assert c.step("job-1") == "r1"
+
+    def test_disabled_telemetry_skips_error_metadata_construction(self, monkeypatch):
+        c = _make_client()
+        monkeypatch.setattr(
+            nc,
+            "_safe_metric_error_message",
+            MagicMock(side_effect=AssertionError("must not run")),
+        )
+        with pytest.raises(ValueError, match="checkpoint_type"):
+            c.save("job-1", checkpoint_type="invalid")
+
+    def test_nested_tracked_operations_emit_only_outer_outcome(self, monkeypatch):
+        monkeypatch.setenv(nc.ENABLE_SUCCESS_TELEMETRY_ENV, "1")
+
+        class NestedClient(CortexTrainingClient):
+            @nc._track_operation("inner")
+            def inner(self):
+                return "inner-result"
+
+            @nc._track_operation("outer")
+            def outer(self):
+                return self.inner()
+
+        c = NestedClient(base_url="http://test.local", database="DB", schema="SCH")
+        c._metric_emitter = MagicMock()
+        assert c.outer() == "inner-result"
+        c._metric_emitter.emit.assert_called_once()
+        assert c._metric_emitter.emit.call_args.args[0] == "outer"
+
+    def test_polling_suppresses_nested_status_read_metrics(self, monkeypatch):
+        monkeypatch.setenv(nc.ENABLE_SUCCESS_TELEMETRY_ENV, "1")
+        c = _make_client(get_json={"status": "running"})
+        c._metric_emitter = MagicMock()
+        monkeypatch.setattr(nc.time, "sleep", lambda *_: None)
+
+        assert c.wait_for_job("job-1")["status"] == "running"
+
+        c._metric_emitter.emit.assert_called_once()
+        assert c._metric_emitter.emit.call_args.args[0] == "wait_for_job"
 
 
 # ─── CortexTrainingClient — create_job ────────────────────────────────────────
@@ -693,6 +998,97 @@ class TestCreateJob:
         body = c._session.post.call_args.kwargs["json"]
         assert "experiment_name" not in body
 
+    @pytest.mark.parametrize(
+        "hardware, wire_value",
+        [
+            (Hardware.H200, "H200"),
+            (Hardware.B200, "B200"),
+            (Hardware.B300, "B300"),
+            ("B200", "B200"),
+        ],
+    )
+    def test_includes_hardware_when_given(self, hardware, wire_value):
+        c = _make_client(post_json={"job_id": "srv-1"})
+        sub = SubJobConfig.sampling_job(model_name="gpt2", max_seq_len=128, n_gpus=1)
+        c.create_job(sub_jobs=[sub], hardware=hardware)
+        body = c._session.post.call_args.kwargs["json"]
+        assert body["hardware"] == wire_value
+
+    # Omitted rather than sent as H200: the server owns the default.
+    def test_omits_hardware_when_none(self):
+        c = _make_client(post_json={"job_id": "srv-1"})
+        sub = SubJobConfig.sampling_job(model_name="gpt2", max_seq_len=128, n_gpus=1)
+        c.create_job(sub_jobs=[sub])
+        body = c._session.post.call_args.kwargs["json"]
+        assert "hardware" not in body
+
+    @pytest.mark.parametrize("hardware", ["A10", "h200", "", 200])
+    def test_rejects_unknown_hardware(self, hardware):
+        c = _make_client()
+        sub = SubJobConfig.sampling_job(model_name="gpt2", max_seq_len=128, n_gpus=1)
+        with pytest.raises(ValueError, match="hardware must be one of"):
+            c.create_job(sub_jobs=[sub], hardware=hardware)
+
+    # 0 is accepted here; pending_timeout_seconds rejects it.
+    @pytest.mark.parametrize(
+        "idle_timeout_seconds", [0, 300, 1_800, 604_800]
+    )
+    def test_includes_valid_idle_timeout_seconds(self, idle_timeout_seconds):
+        c = _make_client(post_json={"job_id": "srv-1"})
+        sub = SubJobConfig.sampling_job(model_name="gpt2", max_seq_len=128, n_gpus=1)
+        c.create_job(sub_jobs=[sub], idle_timeout_seconds=idle_timeout_seconds)
+        body = c._session.post.call_args.kwargs["json"]
+        assert body["idle_timeout_seconds"] == idle_timeout_seconds
+
+    def test_omits_idle_timeout_when_none(self):
+        c = _make_client(post_json={"job_id": "srv-1"})
+        sub = SubJobConfig.sampling_job(model_name="gpt2", max_seq_len=128, n_gpus=1)
+        c.create_job(sub_jobs=[sub])
+        body = c._session.post.call_args.kwargs["json"]
+        assert "idle_timeout_seconds" not in body
+
+    @pytest.mark.parametrize(
+        "idle_timeout_seconds",
+        [-1, 1, 299, 604_801, True, 300.0, "300"],
+    )
+    def test_rejects_invalid_idle_timeout_seconds(self, idle_timeout_seconds):
+        c = _make_client()
+        sub = SubJobConfig.sampling_job(model_name="gpt2", max_seq_len=128, n_gpus=1)
+        with pytest.raises(ValueError, match="idle_timeout_seconds"):
+            c.create_job(sub_jobs=[sub], idle_timeout_seconds=idle_timeout_seconds)
+        c._session.post.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "pending_timeout_seconds", [300, 3_600, 86_400, 604_800]
+    )
+    def test_includes_valid_pending_timeout_seconds(self, pending_timeout_seconds):
+        c = _make_client(post_json={"job_id": "srv-1"})
+        sub = SubJobConfig.sampling_job(model_name="gpt2", max_seq_len=128, n_gpus=1)
+        c.create_job(sub_jobs=[sub], pending_timeout_seconds=pending_timeout_seconds)
+        body = c._session.post.call_args.kwargs["json"]
+        assert body["pending_timeout_seconds"] == pending_timeout_seconds
+
+    def test_omits_pending_timeout_when_none(self):
+        c = _make_client(post_json={"job_id": "srv-1"})
+        sub = SubJobConfig.sampling_job(model_name="gpt2", max_seq_len=128, n_gpus=1)
+        c.create_job(sub_jobs=[sub])
+        body = c._session.post.call_args.kwargs["json"]
+        assert "pending_timeout_seconds" not in body
+
+    # 0 is rejected here; idle_timeout_seconds accepts it.
+    @pytest.mark.parametrize(
+        "pending_timeout_seconds",
+        [-1, 0, 1, 299, 604_801, True, 300.0, "300"],
+    )
+    def test_rejects_invalid_pending_timeout_seconds(self, pending_timeout_seconds):
+        c = _make_client()
+        sub = SubJobConfig.sampling_job(model_name="gpt2", max_seq_len=128, n_gpus=1)
+        with pytest.raises(ValueError, match="pending_timeout_seconds"):
+            c.create_job(
+                sub_jobs=[sub], pending_timeout_seconds=pending_timeout_seconds
+            )
+        c._session.post.assert_not_called()
+
     def test_supports_multiple_sub_jobs(self):
         c = _make_client(post_json={"job_id": "srv-1"})
         train = SubJobConfig.training_job(
@@ -733,6 +1129,64 @@ class TestCreateJob:
         c = _make_client()
         with pytest.raises(ValueError, match="sub_job_configs"):
             c.create_job_from_body({"sub_job_configs": []})
+
+    def test_rejects_two_training_sub_jobs_before_post(self):
+        c = _make_client()
+        training = SubJobConfig.training_job(
+            model_name="gpt2",
+            optimizer={"type": "adamw"},
+            max_seq_len=128,
+            train_batch_size=1,
+            n_gpus=2,
+        )
+        with pytest.raises(ValueError, match="at most one training sub-job"):
+            c.create_job(sub_jobs=[training, training])
+        c._session.post.assert_not_called()
+
+    def test_create_job_from_body_rejects_two_training_sub_jobs_before_post(self):
+        c = _make_client()
+        body = {
+            "sub_job_configs": [
+                {
+                    "job_type": "training",
+                    "model_name": "gpt2",
+                    "training_config": {"max_seq_len": 128, "train_batch_size": 1, "n_gpus": 2},
+                },
+                {
+                    "job_type": " TRAINING ",
+                    "model_name": "gpt2",
+                    "training_config": {"max_seq_len": 128, "train_batch_size": 1, "n_gpus": 2},
+                },
+            ],
+        }
+        with pytest.raises(ValueError, match="at most one training sub-job"):
+            c.create_job_from_body(body)
+        c._session.post.assert_not_called()
+
+    def test_allows_one_training_with_multiple_sampling(self):
+        c = _make_client(post_json={"job_id": "srv-1"})
+        training = SubJobConfig.training_job(
+            model_name="gpt2",
+            optimizer={"type": "adamw"},
+            max_seq_len=128,
+            train_batch_size=1,
+            n_gpus=2,
+        )
+        sampling = SubJobConfig.sampling_job(model_name="gpt2", max_seq_len=128, n_gpus=1)
+        assert c.create_job(sub_jobs=[training, sampling, sampling]) == "srv-1"
+        body = c._session.post.call_args.kwargs["json"]
+        assert [sj["job_type"] for sj in body["sub_job_configs"]] == [
+            "training",
+            "sampling",
+            "sampling",
+        ]
+
+    def test_allows_multiple_sampling_without_training(self):
+        c = _make_client(post_json={"job_id": "srv-1"})
+        sampling = SubJobConfig.sampling_job(model_name="gpt2", max_seq_len=128, n_gpus=1)
+        assert c.create_job(sub_jobs=[sampling, sampling]) == "srv-1"
+        body = c._session.post.call_args.kwargs["json"]
+        assert [sj["job_type"] for sj in body["sub_job_configs"]] == ["sampling", "sampling"]
 
     def test_create_job_from_body_rejects_debug_without_env(self, monkeypatch):
         monkeypatch.delenv(nc.DEBUG_OPTIONS_ENV, raising=False)
@@ -841,6 +1295,19 @@ class TestReadAndControl:
             "available_gpus": 56,
         }
         c._session.get.assert_called_once_with(f"{c._prefix}/capacity")
+
+    def test_get_capacity_sends_hardware_query(self):
+        c = _make_client(get_json={"has_reservation": True, "reserved_gpus": 32})
+        c.get_capacity(hardware=Hardware.B200)
+        c._session.get.assert_called_once_with(
+            f"{c._prefix}/capacity", params={"hardware": "B200"}
+        )
+
+    def test_get_capacity_rejects_unknown_hardware(self):
+        c = _make_client(get_json={})
+        with pytest.raises(ValueError, match="hardware must be one of"):
+            c.get_capacity(hardware="A10")
+        c._session.get.assert_not_called()
 
     def test_get_capacity_fills_proto3_omitted_defaults(self):
         # proto3 JSON omits zero/false fields; an unreserved account is `{}`.

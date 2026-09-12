@@ -20,6 +20,8 @@ from __future__ import annotations
 import io
 import json
 
+import pytest
+
 import cortex_training._cli as cli
 
 
@@ -48,6 +50,7 @@ class FakeClient:
         self.weight_sync_sub_job_id = None
         self.weight_sync_sub_job_type = None
         self.capacity_requested = False
+        self.capacity_hardware = None
         self.checkpoints_job_id = None
         self.jobs = None
 
@@ -78,8 +81,9 @@ class FakeClient:
     def cancel_job(self, job_id):
         self.cancelled_job_id = job_id
 
-    def get_capacity(self):
+    def get_capacity(self, hardware=None):
         self.capacity_requested = True
+        self.capacity_hardware = hardware
         return {
             "has_reservation": True,
             "reserved_gpus": 64,
@@ -279,6 +283,43 @@ def test_submit_dry_run_does_not_require_connection(tmp_path, monkeypatch):
     assert json.loads(stdout.getvalue())["job_id"] == "dry"
 
 
+def _write_two_training_job(tmp_path):
+    path = tmp_path / "two-training.json"
+    training = {
+        "job_type": "training",
+        "model_name": "gpt2",
+        "training_config": {"max_seq_len": 128, "train_batch_size": 1, "n_gpus": 2},
+    }
+    path.write_text(json.dumps({"sub_job_configs": [training, training]}), encoding="utf-8")
+    return path
+
+
+def test_submit_rejects_two_training_sub_jobs(tmp_path):
+    instances = []
+    stderr = io.StringIO()
+    path = _write_two_training_job(tmp_path)
+
+    rc = cli.main(
+        _base_args() + ["submit", str(path)],
+        client_factory=_factory(instances),
+        stderr=stderr,
+    )
+
+    assert rc == 1
+    assert "at most one training sub-job is supported per job" in stderr.getvalue()
+    assert instances[0].submitted_body is None
+
+
+def test_submit_dry_run_rejects_two_training_sub_jobs(tmp_path):
+    stderr = io.StringIO()
+    path = _write_two_training_job(tmp_path)
+
+    rc = cli.main(["submit", str(path), "--dry-run"], stderr=stderr)
+
+    assert rc == 1
+    assert "at most one training sub-job is supported per job" in stderr.getvalue()
+
+
 def test_list_prints_jobs_with_status_filter():
     instances = []
     stdout = io.StringIO()
@@ -418,12 +459,36 @@ def test_capacity_prints_account_gpu_usage():
 
     assert rc == 0
     assert instances[0].capacity_requested is True
+    assert instances[0].capacity_hardware is None
     assert json.loads(stdout.getvalue()) == {
         "has_reservation": True,
         "reserved_gpus": 64,
         "in_use_gpus": 8,
         "available_gpus": 56,
     }
+
+
+def test_capacity_passes_hardware():
+    instances = []
+    stdout = io.StringIO()
+
+    rc = cli.main(
+        _base_args() + ["capacity", "--hardware", "B300"],
+        client_factory=_factory(instances),
+        stdout=stdout,
+    )
+
+    assert rc == 0
+    assert instances[0].capacity_hardware == "B300"
+
+
+def test_capacity_rejects_unknown_hardware():
+    with pytest.raises(SystemExit):
+        cli.main(
+            _base_args() + ["capacity", "--hardware", "A10"],
+            client_factory=_factory([]),
+            stdout=io.StringIO(),
+        )
 
 
 def test_cancel_prints_confirmation():

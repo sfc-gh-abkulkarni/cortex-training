@@ -112,6 +112,7 @@ Explicit CLI flags override config values.
 cortex-training list
 cortex-training list --status running
 cortex-training capacity
+cortex-training capacity --hardware B200
 cortex-training get JOB_ID
 cortex-training checkpoints JOB_ID
 cortex-training cancel JOB_ID
@@ -137,10 +138,14 @@ Print the caller account's reserved GPU capacity and current usage:
 
 ```bash
 cortex-training capacity
+cortex-training capacity --hardware B200
 ```
 
 The command prints `has_reservation`, `reserved_gpus`, `in_use_gpus`, and
 `available_gpus`.
+
+`--hardware` scopes the numbers to one GPU type: `H200`, `B200`, or `B300`.
+Omitting it reports H200.
 
 The server also returns a `max_total_gpus` ceiling that supersedes
 `reserved_gpus`, but the client does not surface it yet, so `reserved_gpus` is
@@ -261,14 +266,14 @@ cortex-training get JOB_ID | jq '.sub_jobs[] | select(.job_type=="training") | {
 The global `--job-id` option is only for the data-plane subcommands that have no
 positional job id (`fwd-bwd`, `step`, `load`, `generate`, `weight-sync`).
 
-#### When to Use target-sub-job-id
+#### When to Use load --target-sub-job-id
 
-Most sessions have a single training sub-job, so `--target-sub-job-id` can be
-omitted. Use it when:
-
-- Your session has multiple training sub-jobs (multi-DP configurations)
-- You need to load different checkpoints into different sub-jobs
-- You want explicit control over which sub-job receives the checkpoint
+A job has at most one training sub-job, so `load --target-sub-job-id` can be
+omitted. Use it when you want explicit control over which sub-job receives the
+checkpoint rather than relying on the server's default resolution; it must name a
+training sub-job. `weight-sync` takes its own `--target-sub-job-id`, which names
+sampling sub-jobs and can be repeated — see
+[Sync Training Weights](#sync-training-weights).
 
 #### DP Size Compatibility
 
@@ -348,7 +353,7 @@ sub-job ids when needed:
 
 ```bash
 cortex-training --job-id JOB_ID weight-sync \
-  --source-sub-job-id JOB_ID:training:1 \
+  --source-sub-job-id JOB_ID:training:0 \
   --target-sub-job-id JOB_ID:sampling:0 \
   --target-sub-job-id JOB_ID:sampling:1
 ```
@@ -456,6 +461,11 @@ CORTEX_TRAINING_SCHEMA
 SNOWFLAKE_SCHEMA
 CORTEX_TRAINING_ENDPOINT
 ```
+
+`CORTEX_TRAINING_DISABLE_TELEMETRY` (truthy) skips OTLP client metrics on
+PAT-authenticated clients. `CORTEX_TRAINING_ENABLE_SUCCESS_TELEMETRY`
+(truthy) also emits successful outcomes for essential operations; failures
+are emitted by default. See the [Python SDK reference](python-sdk.md#client-metrics).
 
 ### Troubleshooting
 

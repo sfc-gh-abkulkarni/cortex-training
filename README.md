@@ -6,7 +6,7 @@ Cortex Training REST API.
 ## Start Here
 
 - [Follow the getting-started path](docs/getting-started/README.md)
-- [Run the first supervised fine-tuning job](docs/getting-started/first-sft-run.md)
+- [Run a quick supervised fine-tuning job](docs/getting-started/first-sft-run.md)
 - [Browse runnable recipes](recipes/README.md)
 - [Check model and training-method compatibility](docs/reference/model-compatibility.md)
 - [Use the CLI and Python client](docs/reference/cli.md)
@@ -75,6 +75,7 @@ See the [CLI reference](docs/reference/cli.md) for commands and configuration.
 
 | Path | Purpose |
 |---|---|
+| `model-catalog/` | Supported models, context limits, and recommended job profiles |
 | `docs/` | Getting started material, concepts, guides, and reference |
 | `recipes/` | End-to-end training, sampling, and evaluation workflows |
 | `examples/api/` | Small JSON examples for individual API operations |
