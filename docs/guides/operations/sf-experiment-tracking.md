@@ -22,14 +22,14 @@ Set `sf_experiment` on the train command to enable tracking:
 
 ```bash
 python -m recipes.sft.conversational.train \
-  config=/path/to/config.json sf_experiment=my-sft-experiment
+  config=/path/to/config.json sf_experiment=my_sft_experiment
 ```
 
 Use `sf_run_name` to name the run (auto-generated if omitted):
 
 ```bash
 python -m recipes.rl.math_grpo.train \
-  config=/path/to/config.json sf_experiment=math-grpo sf_run_name=run-01
+  config=/path/to/config.json sf_experiment=math_grpo sf_run_name=run_01
 ```
 
 Training hyperparameters are logged once at the start of the run. Metrics

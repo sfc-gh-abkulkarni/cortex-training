@@ -794,16 +794,19 @@ def _create_snowpark_session(config_path: str) -> Any:
     if not host or not pat:
         raise ValueError("connection config needs `host` and `pat` to create a Snowpark session")
 
-    return Session.builder.configs(
-        {
-            "host": host,
-            "account": host.split(".")[0],
-            "authenticator": "PROGRAMMATIC_ACCESS_TOKEN",
-            "token": pat,
-            "database": config.get("database", "CORTEX_TRAINING_DB"),
-            "schema": config.get("schema", "PUBLIC"),
-        }
-    ).create()
+    session_config: dict[str, Any] = {
+        "host": host,
+        "account": host.split(".")[0],
+        "authenticator": "PROGRAMMATIC_ACCESS_TOKEN",
+        "token": pat,
+        "database": config.get("database", "CORTEX_TRAINING_DB"),
+        "schema": config.get("schema", "PUBLIC"),
+    }
+    user = config.get("user")
+    if user:
+        session_config["user"] = user
+
+    return Session.builder.configs(session_config).create()
 
 
 class SnowflakeExperimentLogger:
