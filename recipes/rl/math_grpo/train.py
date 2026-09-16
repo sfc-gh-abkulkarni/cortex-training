@@ -50,9 +50,9 @@ from recipes.utils import running_job
 from recipes.utils import sampling_params_with_sample_ids
 from recipes.utils import save_recipe_checkpoints
 from recipes.utils import sequence_from_rollout
+from recipes.utils import setup_logging
 from recipes.utils import stop_params_for
 from recipes.utils import sync_weights
-from tinker_cookbook.utils import ml_log
 
 from cortex_training.client import DEBUG_OPTIONS_ENV
 
@@ -237,6 +237,8 @@ class Config:
     log_path: str = "/tmp/cortex-training-examples/rl-loop"
     wandb_project: str | None = None
     wandb_name: str | None = None
+    sf_experiment: str | None = None
+    sf_run_name: str | None = None
 
     # Loaded as the colocated sampling + training create-job body.
     job_config: str = "configs/qwen3_8b_lora.json"
@@ -270,12 +272,14 @@ def main(config: Config):
         os.environ[DEBUG_OPTIONS_ENV] = "1"
         logger.info("Using debug image_tag=%s", config.debug_image_tag)
 
-    ml_logger = ml_log.setup_logging(
-        log_dir=config.log_path,
+    ml_logger = setup_logging(
+        config.config,
+        sf_experiment=config.sf_experiment,
+        sf_run_name=config.sf_run_name,
         wandb_project=config.wandb_project,
         wandb_name=config.wandb_name,
+        log_path=config.log_path,
         config=config,
-        do_configure_logging_module=True,
     )
 
     _train(config, ml_logger)

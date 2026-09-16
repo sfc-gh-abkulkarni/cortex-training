@@ -43,9 +43,9 @@ from recipes.utils import make_client
 from recipes.utils import running_job
 from recipes.utils import save_recipe_checkpoints
 from recipes.utils import sequence_from_conversation
+from recipes.utils import setup_logging
 from recipes.utils import use_next_token_labels
 from tinker_cookbook import renderers
-from tinker_cookbook.utils import ml_log
 
 from cortex_training.client import DEBUG_OPTIONS_ENV
 
@@ -85,6 +85,8 @@ class Config:
     log_path: str = "/tmp/cortex-training-examples/sft-loop"
     wandb_project: str | None = None
     wandb_name: str | None = None
+    sf_experiment: str | None = None
+    sf_run_name: str | None = None
 
     # Loaded as the training-only create-job body.
     job_config: str = "configs/qwen3_8b_full.json"
@@ -175,12 +177,14 @@ def main(config: Config):
     model_name = training_sub.get("model_name")
     chunked_logprob_loss = _uses_chunked_logprob_loss(training)
 
-    ml_logger = ml_log.setup_logging(
-        log_dir=config.log_path,
+    ml_logger = setup_logging(
+        config.config,
+        sf_experiment=config.sf_experiment,
+        sf_run_name=config.sf_run_name,
         wandb_project=config.wandb_project,
         wandb_name=config.wandb_name,
+        log_path=config.log_path,
         config=config,
-        do_configure_logging_module=True,
     )
 
     tokenizer, renderer, renderer_name = build_renderer(
