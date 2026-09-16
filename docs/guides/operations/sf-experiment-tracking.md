@@ -40,8 +40,5 @@ Training hyperparameters are logged once at the start of the run. Metrics
 When a run ends, URLs for the experiment and run are printed to stdout. You can
 also browse experiments in Snowsight: **AI & ML > Experiments**.
 
-## Choosing between W&B and Snowflake
-
-The recipes use either Snowflake experiment tracking or Weights & Biases, not
-both. When `sf_experiment` is set it takes precedence; otherwise the recipes
-fall back to W&B / local logging via `wandb_project` and `wandb_name`.
+Snowflake experiment tracking works alongside any other logging the recipes
+support — if `wandb_project` is also set, both backends receive metrics.

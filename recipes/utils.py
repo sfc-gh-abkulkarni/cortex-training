@@ -842,6 +842,21 @@ class SnowflakeExperimentLogger:
         self._exp.end_run()
 
 
+class _CompositeLogger:
+    """Fans out ``log_metrics`` / ``close`` to multiple loggers."""
+
+    def __init__(self, loggers: list[Any]) -> None:
+        self._loggers = loggers
+
+    def log_metrics(self, metrics: dict[str, float], step: int = 0, **kwargs: Any) -> None:
+        for lg in self._loggers:
+            lg.log_metrics(metrics=metrics, step=step, **kwargs)
+
+    def close(self) -> None:
+        for lg in self._loggers:
+            lg.close()
+
+
 def setup_logging(
     config_path: str,
     *,
@@ -854,23 +869,27 @@ def setup_logging(
 ) -> Any:
     """Create the recipe metric logger.
 
-    When ``sf_experiment`` is set, returns a :class:`SnowflakeExperimentLogger`.
-    Otherwise falls back to ``tinker_cookbook.utils.ml_log`` (wandb / local).
+    Both ``sf_experiment`` and ``wandb_project`` can be set to log to Snowflake
+    experiment tracking and Weights & Biases simultaneously.  When neither is
+    set, falls back to local-only logging via ``tinker_cookbook.utils.ml_log``.
     """
-    if sf_experiment:
-        return SnowflakeExperimentLogger(
-            config_path,
-            experiment_name=sf_experiment,
-            run_name=sf_run_name,
-            config=config,
-        )
-
     from tinker_cookbook.utils import ml_log
 
-    return ml_log.setup_logging(
+    base_logger = ml_log.setup_logging(
         log_dir=log_path,
         wandb_project=wandb_project,
         wandb_name=wandb_name,
         config=config,
         do_configure_logging_module=True,
     )
+
+    if not sf_experiment:
+        return base_logger
+
+    sf_logger = SnowflakeExperimentLogger(
+        config_path,
+        experiment_name=sf_experiment,
+        run_name=sf_run_name,
+        config=config,
+    )
+    return _CompositeLogger([base_logger, sf_logger])
