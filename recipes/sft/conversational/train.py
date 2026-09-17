@@ -217,7 +217,6 @@ def main(config: Config):
 
     with running_job(client, body, job_id=config.job_id) as job_id:
         ml_logger = setup_sf_logging(ml_logger, client, job_id, config)
-
         for step in range(total_steps):
             start_time = time.time()
             metrics: dict[str, float] = {}
