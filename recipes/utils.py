@@ -789,10 +789,7 @@ def _create_snowpark_session(config_path: str) -> Any:
     from snowflake.snowpark import Session
 
     config = load_connection_mapping(config_path)
-    host = config.get("host")
-    pat = config.get("pat")
-    if not host or not pat:
-        raise ValueError("connection config needs `host` and `pat` to create a Snowpark session")
+    host = config["host"]
 
     return Session.builder.configs(
         {
@@ -800,7 +797,7 @@ def _create_snowpark_session(config_path: str) -> Any:
             "account": host.split(".")[0],
             "user": config.get("user"),
             "authenticator": "PROGRAMMATIC_ACCESS_TOKEN",
-            "token": pat,
+            "token": config["pat"],
             "database": config.get("database", "CORTEX_TRAINING_DB"),
             "schema": config.get("schema", "PUBLIC"),
         }
