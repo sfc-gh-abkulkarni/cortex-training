@@ -238,7 +238,6 @@ class Config:
     log_path: str = "/tmp/cortex-training-examples/rl-loop"
     wandb_project: str | None = None
     wandb_name: str | None = None
-    sf_experiment: str | None = None
 
     # Loaded as the colocated sampling + training create-job body.
     job_config: str = "configs/qwen3_8b_lora.json"
@@ -365,16 +364,15 @@ def _train(config: Config, ml_logger: Any) -> None:
 
     client = make_client(config.config)
 
-    with running_job(client, body, job_id=config.job_id, experiment_name=config.sf_experiment) as job_id:
-        if config.sf_experiment:
-            run_info = client.get_experiment_run(job_id)
-            sf_logger = SnowflakeExperimentLogger(
-                client.create_snowpark_session(),
-                run_info["experiment_name"],
-                run_info["experiment_run_name"],
-            )
-            sf_logger.log_params(vars(config))
-            ml_logger = _CompositeLogger([ml_logger, sf_logger])
+    with running_job(client, body, job_id=config.job_id) as job_id:
+        run_info = client.get_experiment_run(job_id)
+        sf_logger = SnowflakeExperimentLogger(
+            client.create_snowpark_session(),
+            run_info["experiment_name"],
+            run_info["experiment_run_name"],
+        )
+        sf_logger.log_params(vars(config))
+        ml_logger = _CompositeLogger([ml_logger, sf_logger])
         sampling_job_id: str | None = None
         if router_replay:
             logger.info("Bootstrapping router replay for job %s", job_id)

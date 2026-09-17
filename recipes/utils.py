@@ -743,7 +743,6 @@ def running_job(
     job_body: dict,
     job_id: str | None = None,
     keep_job: bool | None = None,
-    experiment_name: str | None = None,
 ) -> Iterator[str]:
     """Yield the id of a running job, releasing its GPUs on the way out.
 
@@ -755,8 +754,6 @@ def running_job(
     attached = job_id is not None
     if keep_job is None:
         keep_job = attached
-    if experiment_name is not None and not attached:
-        job_body = {**job_body, "experiment_name": experiment_name}
     if attached:
         logger.info("attaching to job %s; waiting for workers", job_id)
     else:
