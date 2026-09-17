@@ -794,19 +794,17 @@ def _create_snowpark_session(config_path: str) -> Any:
     if not host or not pat:
         raise ValueError("connection config needs `host` and `pat` to create a Snowpark session")
 
-    session_config: dict[str, Any] = {
-        "host": host,
-        "account": host.split(".")[0],
-        "authenticator": "PROGRAMMATIC_ACCESS_TOKEN",
-        "token": pat,
-        "database": config.get("database", "CORTEX_TRAINING_DB"),
-        "schema": config.get("schema", "PUBLIC"),
-    }
-    user = config.get("user")
-    if user:
-        session_config["user"] = user
-
-    return Session.builder.configs(session_config).create()
+    return Session.builder.configs(
+        {
+            "host": host,
+            "account": host.split(".")[0],
+            "user": config.get("user"),
+            "authenticator": "PROGRAMMATIC_ACCESS_TOKEN",
+            "token": pat,
+            "database": config.get("database", "CORTEX_TRAINING_DB"),
+            "schema": config.get("schema", "PUBLIC"),
+        }
+    ).create()
 
 
 class SnowflakeExperimentLogger:
@@ -835,8 +833,7 @@ class SnowflakeExperimentLogger:
             self._log_config_params(config)
 
     def _log_config_params(self, config: Any) -> None:
-        params = {k: v for k, v in vars(config).items() if not k.startswith("_")}
-        self._exp.log_params(params)
+        self._exp.log_params(vars(config))
 
     def log_metrics(self, metrics: dict[str, float], step: int = 0, **kwargs: Any) -> None:
         self._exp.log_metrics(metrics, step=step)

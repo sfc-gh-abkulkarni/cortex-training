@@ -12,9 +12,9 @@ Install `snowflake-ml-python` (>= 1.19.0):
 uv pip install "snowflake-ml-python>=1.19.0"
 ```
 
-Your connection config (`config.json`) must include `host`, `pat`, `database`,
-and `schema`. The same config used for the Cortex Training client is reused to
-create the Snowpark session for experiment tracking.
+Your connection config (`config.json`) must include `host`, `pat`, `user`,
+`database`, and `schema`. The same config used for the Cortex Training client
+is reused to create the Snowpark session for experiment tracking.
 
 ## Usage
 
