@@ -43,8 +43,7 @@ from recipes.utils import make_client
 from recipes.utils import running_job
 from recipes.utils import save_recipe_checkpoints
 from recipes.utils import sequence_from_conversation
-from recipes.utils import SnowflakeExperimentLogger
-from recipes.utils import _CompositeLogger
+from recipes.utils import setup_sf_logging
 from recipes.utils import use_next_token_labels
 from tinker_cookbook import renderers
 
@@ -218,14 +217,7 @@ def main(config: Config):
     client = make_client(config.config)
 
     with running_job(client, body, job_id=config.job_id) as job_id:
-        run_info = client.get_experiment_run(job_id)
-        sf_logger = SnowflakeExperimentLogger(
-            client.create_snowpark_session(),
-            run_info["experiment_name"],
-            run_info["experiment_run_name"],
-        )
-        sf_logger.log_params(vars(config))
-        ml_logger = _CompositeLogger([ml_logger, sf_logger])
+        ml_logger = setup_sf_logging(ml_logger, client, job_id, config)
 
         for step in range(total_steps):
             start_time = time.time()

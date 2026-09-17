@@ -50,8 +50,7 @@ from recipes.utils import running_job
 from recipes.utils import sampling_params_with_sample_ids
 from recipes.utils import save_recipe_checkpoints
 from recipes.utils import sequence_from_rollout
-from recipes.utils import SnowflakeExperimentLogger
-from recipes.utils import _CompositeLogger
+from recipes.utils import setup_sf_logging
 from recipes.utils import stop_params_for
 from recipes.utils import sync_weights
 
@@ -365,14 +364,7 @@ def _train(config: Config, ml_logger: Any) -> None:
     client = make_client(config.config)
 
     with running_job(client, body, job_id=config.job_id) as job_id:
-        run_info = client.get_experiment_run(job_id)
-        sf_logger = SnowflakeExperimentLogger(
-            client.create_snowpark_session(),
-            run_info["experiment_name"],
-            run_info["experiment_run_name"],
-        )
-        sf_logger.log_params(vars(config))
-        ml_logger = _CompositeLogger([ml_logger, sf_logger])
+        ml_logger = setup_sf_logging(ml_logger, client, job_id, config)
         sampling_job_id: str | None = None
         if router_replay:
             logger.info("Bootstrapping router replay for job %s", job_id)

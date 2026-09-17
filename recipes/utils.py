@@ -821,3 +821,15 @@ class _CompositeLogger:
     def close(self) -> None:
         for lg in self._loggers:
             lg.close()
+
+
+def setup_sf_logging(ml_logger: Any, client: Any, job_id: str, config: Any) -> Any:
+    """Add Snowflake experiment tracking to *ml_logger* and return the composite."""
+    run_info = client.get_experiment_run(job_id)
+    sf_logger = SnowflakeExperimentLogger(
+        client.create_snowpark_session(),
+        run_info["experiment_name"],
+        run_info["experiment_run_name"],
+    )
+    sf_logger.log_params(vars(config))
+    return _CompositeLogger([ml_logger, sf_logger])
