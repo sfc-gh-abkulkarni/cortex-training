@@ -46,6 +46,7 @@ from recipes.utils import sequence_from_conversation
 from recipes.utils import setup_sf_logging
 from recipes.utils import use_next_token_labels
 from tinker_cookbook import renderers
+from tinker_cookbook.utils import ml_log
 
 from cortex_training.client import DEBUG_OPTIONS_ENV
 
@@ -174,8 +175,6 @@ def main(config: Config):
     model_provider = str(training.get("model_provider") or "huggingface")
     model_name = training_sub.get("model_name")
     chunked_logprob_loss = _uses_chunked_logprob_loss(training)
-
-    from tinker_cookbook.utils import ml_log
 
     ml_logger = ml_log.setup_logging(
         log_dir=config.log_path,

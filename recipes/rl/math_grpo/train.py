@@ -54,6 +54,8 @@ from recipes.utils import setup_sf_logging
 from recipes.utils import stop_params_for
 from recipes.utils import sync_weights
 
+from tinker_cookbook.utils import ml_log
+
 from cortex_training.client import DEBUG_OPTIONS_ENV
 
 logger = logging.getLogger(__name__)
@@ -269,8 +271,6 @@ def main(config: Config):
     if config.debug_image_tag:
         os.environ[DEBUG_OPTIONS_ENV] = "1"
         logger.info("Using debug image_tag=%s", config.debug_image_tag)
-
-    from tinker_cookbook.utils import ml_log
 
     ml_logger = ml_log.setup_logging(
         log_dir=config.log_path,
