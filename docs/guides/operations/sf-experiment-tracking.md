@@ -12,9 +12,9 @@ Install `snowflake-ml-python` (>= 1.19.0):
 uv pip install "snowflake-ml-python>=1.19.0"
 ```
 
-Your connection config (`config.json`) must include `host`, `pat`, `user`,
-`database`, and `schema`. The same config used for the Cortex Training client
-is reused to create the Snowpark session for experiment tracking.
+Your connection config (`config.json`) must include `host`, `pat`, `database`,
+and `schema`. The same config used for the Cortex Training client is reused to
+create the Snowpark session for experiment tracking.
 
 ## Usage
 
@@ -25,15 +25,10 @@ python -m recipes.sft.conversational.train \
   config=/path/to/config.json sf_experiment=my_sft_experiment
 ```
 
-Use `sf_run_name` to name the run (auto-generated if omitted):
-
-```bash
-python -m recipes.rl.math_grpo.train \
-  config=/path/to/config.json sf_experiment=math_grpo sf_run_name=run_01
-```
-
-Training hyperparameters are logged once at the start of the run. Metrics
-(loss, reward, timing, etc.) are logged every step.
+The experiment name is passed to the Cortex Training job, and the server
+assigns a run name automatically. Training hyperparameters are logged once
+at the start of the run. Metrics (loss, reward, timing, etc.) are logged
+every step.
 
 ## Viewing results
 

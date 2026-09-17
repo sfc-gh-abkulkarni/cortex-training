@@ -743,6 +743,7 @@ def running_job(
     job_body: dict,
     job_id: str | None = None,
     keep_job: bool | None = None,
+    experiment_name: str | None = None,
 ) -> Iterator[str]:
     """Yield the id of a running job, releasing its GPUs on the way out.
 
@@ -754,6 +755,8 @@ def running_job(
     attached = job_id is not None
     if keep_job is None:
         keep_job = attached
+    if experiment_name is not None and not attached:
+        job_body = {**job_body, "experiment_name": experiment_name}
     if attached:
         logger.info("attaching to job %s; waiting for workers", job_id)
     else:
@@ -784,53 +787,22 @@ def running_job(
 # ─── Snowflake experiment tracking ────────────────────────────────────────
 
 
-def _create_snowpark_session(config_path: str) -> Any:
-    """Build a Snowpark Session from a recipe connection config."""
-    from snowflake.snowpark import Session
-
-    config = load_connection_mapping(config_path)
-    host = config["host"]
-
-    return Session.builder.configs(
-        {
-            "host": host,
-            "account": host.split(".")[0],
-            "user": config.get("user"),
-            "authenticator": "PROGRAMMATIC_ACCESS_TOKEN",
-            "token": config["pat"],
-            "database": config.get("database", "CORTEX_TRAINING_DB"),
-            "schema": config.get("schema", "PUBLIC"),
-        }
-    ).create()
-
-
 class SnowflakeExperimentLogger:
-    """Drop-in replacement for ``ml_log`` that logs to Snowflake experiment tracking.
+    """Logs metrics to Snowflake experiment tracking.
 
-    Exposes the same ``log_metrics`` / ``close`` interface so recipes can swap
-    the logger without changing their training loop.
-
-    Requires ``snowflake-ml-python >= 1.19.0``.
+    Same ``log_metrics`` / ``close`` interface as ``ml_log`` so it can be
+    composed via :class:`_CompositeLogger`.
     """
 
-    def __init__(
-        self,
-        config_path: str,
-        experiment_name: str,
-        run_name: str | None = None,
-        config: Any = None,
-    ) -> None:
+    def __init__(self, session: Any, experiment_name: str, run_name: str) -> None:
         from snowflake.ml.experiment import ExperimentTracking
 
-        session = _create_snowpark_session(config_path)
         self._exp = ExperimentTracking(session=session)
         self._exp.set_experiment(experiment_name)
         self._exp.start_run(run_name)
-        if config is not None:
-            self._log_config_params(config)
 
-    def _log_config_params(self, config: Any) -> None:
-        self._exp.log_params(vars(config))
+    def log_params(self, params: dict[str, Any]) -> None:
+        self._exp.log_params(params)
 
     def log_metrics(self, metrics: dict[str, float], step: int = 0, **kwargs: Any) -> None:
         self._exp.log_metrics(metrics, step=step)
@@ -852,41 +824,3 @@ class _CompositeLogger:
     def close(self) -> None:
         for lg in self._loggers:
             lg.close()
-
-
-def setup_logging(
-    config_path: str,
-    *,
-    sf_experiment: str | None = None,
-    sf_run_name: str | None = None,
-    wandb_project: str | None = None,
-    wandb_name: str | None = None,
-    log_path: str = "/tmp/cortex-training-examples",
-    config: Any = None,
-) -> Any:
-    """Create the recipe metric logger.
-
-    Both ``sf_experiment`` and ``wandb_project`` can be set to log to Snowflake
-    experiment tracking and Weights & Biases simultaneously.  When neither is
-    set, falls back to local-only logging via ``tinker_cookbook.utils.ml_log``.
-    """
-    from tinker_cookbook.utils import ml_log
-
-    base_logger = ml_log.setup_logging(
-        log_dir=log_path,
-        wandb_project=wandb_project,
-        wandb_name=wandb_name,
-        config=config,
-        do_configure_logging_module=True,
-    )
-
-    if not sf_experiment:
-        return base_logger
-
-    sf_logger = SnowflakeExperimentLogger(
-        config_path,
-        experiment_name=sf_experiment,
-        run_name=sf_run_name,
-        config=config,
-    )
-    return _CompositeLogger([base_logger, sf_logger])

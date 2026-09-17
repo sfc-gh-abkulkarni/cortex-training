@@ -50,7 +50,8 @@ from recipes.utils import running_job
 from recipes.utils import sampling_params_with_sample_ids
 from recipes.utils import save_recipe_checkpoints
 from recipes.utils import sequence_from_rollout
-from recipes.utils import setup_logging
+from recipes.utils import SnowflakeExperimentLogger
+from recipes.utils import _CompositeLogger
 from recipes.utils import stop_params_for
 from recipes.utils import sync_weights
 
@@ -238,7 +239,6 @@ class Config:
     wandb_project: str | None = None
     wandb_name: str | None = None
     sf_experiment: str | None = None
-    sf_run_name: str | None = None
 
     # Loaded as the colocated sampling + training create-job body.
     job_config: str = "configs/qwen3_8b_lora.json"
@@ -272,14 +272,14 @@ def main(config: Config):
         os.environ[DEBUG_OPTIONS_ENV] = "1"
         logger.info("Using debug image_tag=%s", config.debug_image_tag)
 
-    ml_logger = setup_logging(
-        config.config,
-        sf_experiment=config.sf_experiment,
-        sf_run_name=config.sf_run_name,
+    from tinker_cookbook.utils import ml_log
+
+    ml_logger = ml_log.setup_logging(
+        log_dir=config.log_path,
         wandb_project=config.wandb_project,
         wandb_name=config.wandb_name,
-        log_path=config.log_path,
         config=config,
+        do_configure_logging_module=True,
     )
 
     _train(config, ml_logger)
@@ -365,7 +365,16 @@ def _train(config: Config, ml_logger: Any) -> None:
 
     client = make_client(config.config)
 
-    with running_job(client, body, job_id=config.job_id) as job_id:
+    with running_job(client, body, job_id=config.job_id, experiment_name=config.sf_experiment) as job_id:
+        if config.sf_experiment:
+            run_info = client.get_experiment_run(job_id)
+            sf_logger = SnowflakeExperimentLogger(
+                client.create_snowpark_session(),
+                run_info["experiment_name"],
+                run_info["experiment_run_name"],
+            )
+            sf_logger.log_params(vars(config))
+            ml_logger = _CompositeLogger([ml_logger, sf_logger])
         sampling_job_id: str | None = None
         if router_replay:
             logger.info("Bootstrapping router replay for job %s", job_id)
