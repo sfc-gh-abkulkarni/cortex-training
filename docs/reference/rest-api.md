@@ -1285,11 +1285,15 @@ The typed client requires:
 `multiplex_job_id` is optional. `extra_sampling` is an open passthrough object;
 common values include `gpu_memory_utilization` and a nested `vllm_config`.
 
-`vllm_config.speculative_config` enables vLLM speculative decoding on a
-sampling sub-job. `speculative_config.model` is the draft-model id and uses
-the same convention as `model_name`: pass an `<org>/<model>` Hub id. The
-server maps that id to the baked model cache. Explicit local paths are used
-as-is. Callers should not hard-code cache locations.
+Enable speculative decoding on a sampling sub-job with
+`vllm_config.speculative_config`. The client forwards that block to the
+server. Typical keys are `method`, `model` (the draft model), and
+`num_speculative_tokens`.
+
+`speculative_config.model` uses the same convention as `model_name`: pass an
+`<org>/<model>` Hub id. The server maps it to the baked model cache.
+Explicit local paths are used as-is. Callers should not hard-code cache
+locations.
 
 ```python
 sampling = SubJobConfig.sampling_job(
