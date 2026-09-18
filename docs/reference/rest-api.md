@@ -1303,6 +1303,7 @@ sampling = SubJobConfig.sampling_job(
     extra_sampling={
         "vllm_config": {
             "tensor_parallel_size": 1,
+            "gpu_memory_utilization": 0.85,
             "speculative_config": {
                 "method": "dflash",
                 "model": "z-lab/Qwen3.8-27B-DFlash2",
