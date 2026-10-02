@@ -4,6 +4,7 @@ Train a model with grouped policy optimization on Hendrycks MATH and evaluate
 against MATH-500. The recipe creates colocated training and sampling sub-jobs,
 generates rollouts, scores them, trains, and synchronizes weights. After the
 final save it logs a `python -m recipes.inference.evaluate` command.
+MATH-specific prompting, scoring, and evaluation live in `tasks/math.py`.
 
 ## Hardware
 
@@ -19,40 +20,41 @@ cortex-training capacity
 
 ```bash
 # Qwen3-8B LoRA (default)
-python -m recipes.rl.math_grpo.train \
+python -m recipes.rl.train \
   config=/path/to/config.json
-  
+
 # Qwen3-8B full-parameter
-python -m recipes.rl.math_grpo.train \
+python -m recipes.rl.train \
   config=/path/to/config.json \
   job_config=configs/qwen3_8b_full.json
 
 # Qwen3.6-35B-A3B LoRA
-python -m recipes.rl.math_grpo.train \
+python -m recipes.rl.train \
   config=/path/to/config.json \
   job_config=configs/qwen36_35b_a3b_lora.json
 
 # Qwen3.6-35B-A3B full-parameter
-python -m recipes.rl.math_grpo.train \
+python -m recipes.rl.train \
   config=/path/to/config.json \
   job_config=configs/qwen36_35b_a3b_full.json
 
 # Qwen3.8-27B full-parameter
-python -m recipes.rl.math_grpo.train \
+python -m recipes.rl.train \
   config=/path/to/config.json \
   job_config=configs/qwen38_27b_full.json \
   weight_sync_bucket_size=3221225472 \
   max_tokens=2048
 ```
 
-`config=` is the Snowflake connection file. Adapt from `examples/config/connection.json.template`.
+`config=` is the Snowflake connection file. Adapt from
+`examples/config/connection.json.template`.
 
 The default job body is `configs/qwen3_8b_lora.json`.
 
 ## Customizability
 
 ```bash
-python -m recipes.rl.math_grpo.train \
+python -m recipes.rl.train \
   config=/path/to/config.json \
   job_config=JOB_CONFIG \
   max_tokens=MAX_TOKENS \
@@ -214,3 +216,7 @@ python -m recipes.inference.evaluate \
   temperature=1.0 \
   max_tokens=MAX_TOKENS
 ```
+
+## Compatibility
+
+The previous `python -m recipes.rl.math_grpo.train` command remains available.

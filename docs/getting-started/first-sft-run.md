@@ -13,7 +13,7 @@ uv pip install 'tinker-cookbook @ git+https://github.com/thinking-machines-lab/t
 Start with a short run:
 
 ```bash
-python -m recipes.sft.conversational.train \
+python -m recipes.sft.train \
   config=/path/to/config.json \
   max_steps=2
 ```
@@ -30,7 +30,7 @@ pass a different one with `job_config=`, for example
 [GPU hardware](../concepts/hardware.md).
 
 For a longer run, dataset changes, dense training, and MoE configuration, see
-the [conversational SFT recipe](../../recipes/sft/conversational/README.md).
+the [conversational SFT recipe](../../recipes/sft/README.md).
 
 There is no packaged before/after evaluation workflow yet. To confirm the run
 worked, check that `train_mean_nll` and `test/nll` fall over a longer run, then

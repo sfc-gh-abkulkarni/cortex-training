@@ -82,7 +82,7 @@ The conversational SFT recipe fine-tunes Qwen3-8B on a one-example chat dataset
 ("Who trained you?" → "Snowflake AI Research"). Start with a short run:
 
 ```bash
-python -m recipes.sft.conversational.train \
+python -m recipes.sft.train \
   config=/path/to/your-config.json \
   max_steps=10
 ```
@@ -134,11 +134,11 @@ cortex-training tui                   # terminal UI for browsing jobs and logs
 You have a working setup. From here:
 
 - **Try different training methods**: adjust the job config JSON to use
-  [LoRA](../../recipes/sft/conversational/README.md)
+  [LoRA](../../recipes/sft/README.md)
   (`job_config=configs/qwen3_8b_lora.json`), a different model, or different
   hyperparameters
 - **Try reinforcement learning**: run the
-  [Math GRPO recipe](../../recipes/rl/math_grpo/README.md)
+  [Math GRPO recipe](../../recipes/rl/README.md)
 - **Explore all recipes**: browse the [recipe catalog](../../recipes/README.md)
 - **Learn the CLI**: see the [CLI reference](../reference/cli.md) for all
   available commands

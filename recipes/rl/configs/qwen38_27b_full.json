@@ -8,10 +8,7 @@
       "inference_config": {
         "max_seq_len": 32768,
         "n_gpus": 8,
-        "vllm_config": {
-          "tensor_parallel_size": 8,
-          "gpu_memory_utilization": 0.8
-        }
+        "vllm_config": {"tensor_parallel_size": 8, "gpu_memory_utilization": 0.8}
       }
     },
     {
@@ -28,27 +25,14 @@
         "attn_implementation": "flash_attention_3",
         "fused_cross_entropy": false,
         "fused_lm_head_token_chunk_size": 8192,
-        "mb_spec": {
-          "max_tokens_per_mb": 10240
-        },
-        "optimizer": {
-          "name": "AdamW",
-          "lr": 1e-06,
-          "weight_decay": 0.0,
-          "betas": [0.9, 0.95],
-          "eps": 1e-08
-        },
+        "mb_spec": {"max_tokens_per_mb": 10240},
+        "optimizer": {"name": "AdamW", "lr": 1e-06, "weight_decay": 0.0, "betas": [0.9, 0.95], "eps": 1e-08},
         "ds_config": {
           "train_batch_size": 8,
           "train_micro_batch_size_per_gpu": 1,
           "gradient_accumulation_steps": 1,
-          "zero_optimization": {
-            "stage": 2,
-            "reduce_scatter": true
-          },
-          "bf16": {
-            "enabled": true
-          }
+          "zero_optimization": {"stage": 2, "reduce_scatter": true},
+          "bf16": {"enabled": true}
         }
       }
     }

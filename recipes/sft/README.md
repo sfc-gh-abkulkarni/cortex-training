@@ -2,9 +2,10 @@
 
 Fine-tune a chat model on a `messages` column. The default dataset is a
 one-example memorize task: when prompted `Who trained you?`, answer
-`Snowflake AI Research`. Hugging Face chat datasets work as well. The entry point supports
-LoRA and full-parameter training, logs `train_nll`, and saves a weights-only
-checkpoint.
+`Snowflake AI Research`. Hugging Face chat datasets work as well. The entry
+point supports LoRA and full-parameter training, logs `train_nll`, and saves a
+weights-only checkpoint. Conversational dataset helpers live in
+`tasks/conversational.py`.
 
 ## Hardware
 
@@ -19,28 +20,30 @@ cortex-training capacity
 ## Run
 
 ```bash
-python -m recipes.sft.conversational.train \
+python -m recipes.sft.train \
   config=/path/to/config.json
 ```
 
-`config=` is the Snowflake connection file only. Copy `examples/config/connection.json.template` and adjust it.
+`config=` is the Snowflake connection file only. Copy
+`examples/config/connection.json.template` and adjust it.
 
-Defaults are Qwen3-8B full-parameter, thinking off, and 100 steps. It uses the builtin `who_trained_you` dataset as default.
+Defaults are Qwen3-8B full-parameter, thinking off, and 100 steps. It uses the
+builtin `who_trained_you` dataset as default.
 
 ## Common Variations
 
 ```bash
 # Thinking-on Qwen3 (must also pass enable_thinking=true to sample)
-python -m recipes.sft.conversational.train \
+python -m recipes.sft.train \
   config=/path/to/config.json \
   enable_thinking=true
 
 # Different chat dataset
-python -m recipes.sft.conversational.train \
+python -m recipes.sft.train \
   config=/path/to/config.json \
   dataset=HuggingFaceH4/no_robots
 
-python -m recipes.sft.conversational.train \
+python -m recipes.sft.train \
   config=/path/to/config.json \
   dataset=HuggingFaceH4/ultrachat_200k dataset_split=train_sft
 ```
@@ -125,7 +128,7 @@ log probabilities without materializing the full `[sequence, vocabulary]`
 logits tensor.
 
 ```bash
-python -m recipes.sft.conversational.train \
+python -m recipes.sft.train \
   config=/path/to/config.json \
   job_config=JOB_CONFIG \
   dataset=DATASET \
@@ -137,17 +140,17 @@ python -m recipes.sft.conversational.train \
 
 ```bash
 # Qwen3-8B LoRA
-python -m recipes.sft.conversational.train \
+python -m recipes.sft.train \
   config=/path/to/config.json \
   job_config=configs/qwen3_8b_lora.json
 
 # Qwen3.6-35B-A3B LoRA
-python -m recipes.sft.conversational.train \
+python -m recipes.sft.train \
   config=/path/to/config.json \
   job_config=configs/qwen36_35b_a3b_lora.json
 
 # Qwen3.6-35B-A3B full-parameter
-python -m recipes.sft.conversational.train \
+python -m recipes.sft.train \
   config=/path/to/config.json \
   job_config=configs/qwen36_35b_a3b_full.json
 ```
@@ -190,7 +193,12 @@ python -m recipes.inference.generate \
   prompt="Who trained you?"
 ```
 
+## Compatibility
+
+The previous `python -m recipes.sft.conversational.train` command remains
+available. Task data and notebooks remain under `conversational/`.
+
 ## Notebooks
 
-- `qwen3_8b_sft_training.ipynb`
-- `qwen3_8b_sft_training_multiplex.ipynb`
+- `conversational/qwen3_8b_sft_training.ipynb`
+- `conversational/qwen3_8b_sft_training_multiplex.ipynb`
