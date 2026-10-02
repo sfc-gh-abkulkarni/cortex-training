@@ -10,14 +10,10 @@ import os
 import statistics
 import time
 from pathlib import Path
+from typing import Any
+from typing import Protocol
 
-import chz
 from recipes.logging import setup_logging
-from recipes.rl.tasks.math import FORMAT_COEF
-from recipes.rl.tasks.math import MathAccuracyEvaluator
-from recipes.rl.tasks.math import build_prompt
-from recipes.rl.tasks.math import load_math
-from recipes.rl.tasks.math import score_response
 from recipes.utils import TrainSequence
 from recipes.utils import bootstrap_router_replay
 from recipes.utils import build_renderer
@@ -46,37 +42,53 @@ _RECIPE_DIR = Path(__file__).resolve().parent
 _CONFIG_SEARCH_DIRS = (_RECIPE_DIR, _RECIPE_DIR / "configs")
 
 
-@chz.chz
-class Config:
+class Config(Protocol):
     config: str
-    job_id: str | None = None
+    job_id: str | None
+    problems_per_batch: int
+    group_size: int
+    max_tokens: int
+    temperature: float
+    top_p: float
+    max_steps: int | None
+    eps_clip: float
+    loss_agg_mode: str
+    entropy_coeff: float
+    remove_constant_reward_groups: bool
+    debug_image_tag: str | None
+    eval_every: int
+    n_test: int | None
+    eval_temperature: float | None
+    eval_max_tokens: int | None
+    weight_sync_bucket_size: int | None
+    job_config: str
 
-    problems_per_batch: int = 64
-    group_size: int = 16
-    max_tokens: int = 4096
-    temperature: float = 1.0
-    top_p: float = 1.0
-    format_coef: float = FORMAT_COEF
 
-    max_steps: int | None = None
-    eps_clip: float = 0.2
-    loss_agg_mode: str = "token-mean"
-    entropy_coeff: float = 0.0
-    remove_constant_reward_groups: bool = True
+class Task(Protocol):
+    name: str
+    evaluation_name: str
 
-    debug_image_tag: str | None = None
-    eval_every: int = 10
-    n_test: int | None = None
-    eval_temperature: float | None = None
-    eval_max_tokens: int | None = None
-    weight_sync_bucket_size: int | None = None
+    def load(self, *, seed: int): ...
 
-    log_path: str = "/tmp/cortex-training-examples/rl-loop"
-    wandb_project: str | None = None
-    wandb_name: str | None = None
-    sf_tracking: bool = False
+    def build_prompt(self, problem: Any, renderer) -> list[int]: ...
 
-    job_config: str = "configs/qwen3_8b_lora.json"
+    def score_response(
+        self,
+        response: str,
+        answer: Any,
+        *,
+        result: dict,
+        max_tokens: int | None,
+    ) -> tuple[float, dict[str, float]]: ...
+
+    def make_evaluator(
+        self,
+        test_problems,
+        renderer,
+        *,
+        sampling_params: dict,
+        n_test: int | None,
+    ): ...
 
 
 def job_body(config: Config) -> dict:
@@ -103,16 +115,16 @@ def _should_eval(step: int, total_steps: int, eval_every: int) -> bool:
     return eval_every > 0 and (step % eval_every == 0 or step == total_steps - 1)
 
 
-def main(config: Config):
+def train(config: Config, task: Task) -> None:
     if config.debug_image_tag:
         os.environ[DEBUG_OPTIONS_ENV] = "1"
         logger.info("Using debug image_tag=%s", config.debug_image_tag)
 
-    _train(config)
+    _train(config, task)
     logger.info("Training completed")
 
 
-def _train(config: Config) -> None:
+def _train(config: Config, task: Task) -> None:
     body = job_body(config)
     subs = {sub.get("job_type"): sub for sub in body.get("sub_job_configs") or ()}
     training_sub = subs.get("training") or {}
@@ -139,9 +151,9 @@ def _train(config: Config) -> None:
     pad_token_id = tokenizer.pad_token_id or tokenizer.eos_token_id
     logger.info("Using renderer: %s", renderer_name)
 
-    logger.info("Loading MATH dataset...")
-    math_dataset = load_math(seed=seed)
-    train_problems = math_dataset.train
+    logger.info("Loading %s dataset...", task.name)
+    task_dataset = task.load(seed=seed)
+    train_problems = task_dataset.train
 
     n_train_batches = len(train_problems) // config.problems_per_batch
     total_steps = (
@@ -171,38 +183,38 @@ def _train(config: Config) -> None:
 
     evaluator = None
     if config.eval_every > 0:
-        if math_dataset.test is None:
+        if task_dataset.test is None:
             logger.warning(
-                "eval_every=%d but MATH has no held-out split, so no benchmark will be reported",
+                "eval_every=%d but %s has no held-out split, so no benchmark will be reported",
                 config.eval_every,
+                task.name,
             )
         else:
-            test_problems = math_dataset.test
-            if config.n_test is not None:
-                test_problems = test_problems[: config.n_test]
             eval_temperature = (
                 config.temperature
                 if config.eval_temperature is None
                 else config.eval_temperature
             )
-            evaluator = MathAccuracyEvaluator(
-                prompts=[
-                    build_prompt(question, renderer) for question, _ in test_problems
-                ],
-                answers=[answer for _, answer in test_problems],
+            evaluator = task.make_evaluator(
+                task_dataset.test,
+                renderer,
                 sampling_params={
                     "max_tokens": config.eval_max_tokens or config.max_tokens,
                     "temperature": eval_temperature,
                     "top_p": config.top_p,
                     **stop_params,
                 },
-                format_coef=config.format_coef,
+                n_test=config.n_test,
             )
             logger.info(
-                "Held-out MATH-500 on %d problems",
+                "Held-out %s on %d problems",
+                task.evaluation_name,
                 len(evaluator.prompts),
             )
-        logger.info("After save, also run recipes.inference.evaluate (MATH-500)")
+        logger.info(
+            "After save, also run recipes.inference.evaluate (%s)",
+            task.evaluation_name,
+        )
 
     client = make_client(config.config)
 
@@ -242,8 +254,8 @@ def _train(config: Config) -> None:
 
             prompts_D: list[list[int]] = []
             prompt_tokens_P: list[list[int]] = []
-            for question, _ in batch:
-                prompt_tokens = build_prompt(question, renderer)
+            for problem, _ in batch:
+                prompt_tokens = task.build_prompt(problem, renderer)
                 prompt_tokens_P.append(prompt_tokens)
                 prompts_D.extend([prompt_tokens] * config.group_size)
 
@@ -269,8 +281,7 @@ def _train(config: Config) -> None:
                 )
 
             rewards_P: list[float] = []
-            corrects_P: list[float] = []
-            formats_P: list[float] = []
+            task_metrics_P: dict[str, list[float]] = {}
             datums_D: list[TrainSequence] = []
             trained_sample_ids: list[str] = []
             for problem_idx, (
@@ -284,24 +295,25 @@ def _train(config: Config) -> None:
                 group = results_D[group_slice]
                 group_sample_ids = sample_ids_D[group_slice]
                 scored = [
-                    score_response(
+                    task.score_response(
                         result.get("text") or "",
                         answer,
                         result=result,
                         max_tokens=config.max_tokens,
-                        format_coef=config.format_coef,
                     )
                     for result in group
                 ]
                 rewards_G = [reward for reward, _ in scored]
                 mean_reward = sum(rewards_G) / len(rewards_G)
                 rewards_P.append(mean_reward)
-                corrects_P.append(
-                    sum(item["correct"] for _, item in scored) / len(scored)
-                )
-                formats_P.append(
-                    sum(item["format"] for _, item in scored) / len(scored)
-                )
+                group_metrics: dict[str, list[float]] = {}
+                for _, item in scored:
+                    for name, value in item.items():
+                        group_metrics.setdefault(name, []).append(value)
+                for name, values in group_metrics.items():
+                    task_metrics_P.setdefault(name, []).append(
+                        sum(values) / len(values)
+                    )
                 advantages_G = [reward - mean_reward for reward in rewards_G]
 
                 if config.remove_constant_reward_groups and all(
@@ -385,12 +397,16 @@ def _train(config: Config) -> None:
                     "reward/std": (
                         statistics.pstdev(rewards_P) if len(rewards_P) > 1 else 0.0
                     ),
-                    "env/all/correct": sum(corrects_P) / len(corrects_P),
-                    "env/all/format": sum(formats_P) / len(formats_P),
                     "rollouts/total": len(results_D),
                     "rollouts/trained": len(datums_D),
                     "train/avg_loss": train_loss,
                     "time/total": time.time() - t_start,
+                }
+            )
+            metrics.update(
+                {
+                    f"env/all/{name}": sum(values) / len(values)
+                    for name, values in task_metrics_P.items()
                 }
             )
             ml_logger.log_metrics(metrics, step=batch_idx)
@@ -413,7 +429,3 @@ def _train(config: Config) -> None:
         )
 
     ml_logger.close()
-
-
-if __name__ == "__main__":
-    chz.nested_entrypoint(main)

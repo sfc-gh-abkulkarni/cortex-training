@@ -82,7 +82,7 @@ The conversational SFT recipe fine-tunes Qwen3-8B on a one-example chat dataset
 ("Who trained you?" → "Snowflake AI Research"). Start with a short run:
 
 ```bash
-python -m recipes.sft.train \
+python -m recipes.sft.conversational.train \
   config=/path/to/your-config.json \
   max_steps=10
 ```

@@ -15,33 +15,31 @@ def _import_recipe(module_name: str):
 
 
 @pytest.mark.parametrize(
-    ("canonical_name", "compatibility_name", "exports"),
+    ("runner_name", "task_name", "task_type"),
     [
         (
             "recipes.sft.train",
             "recipes.sft.conversational.train",
-            ("Config", "main", "job_body"),
+            "ConversationalTask",
         ),
         (
             "recipes.rl.train",
             "recipes.rl.math_grpo.train",
-            ("Config", "main", "job_body", "processing_block"),
+            "MathTask",
         ),
     ],
 )
-def test_compatibility_entrypoints_reexport_canonical_runner(
-    canonical_name,
-    compatibility_name,
-    exports,
-):
-    canonical = _import_recipe(canonical_name)
-    compatibility = _import_recipe(compatibility_name)
+def test_task_entrypoints_call_shared_runner(runner_name, task_name, task_type):
+    runner = _import_recipe(runner_name)
+    task_entrypoint = _import_recipe(task_name)
 
-    for name in exports:
-        assert getattr(compatibility, name) is getattr(canonical, name)
+    assert task_entrypoint.train is runner.train
+    assert task_entrypoint.job_body is runner.job_body
+    assert task_entrypoint.Config.__module__ == task_name
+    assert getattr(task_entrypoint, task_type).__module__.startswith("recipes.")
 
 
-def test_task_helpers_remain_available_from_compatibility_modules():
+def test_task_helpers_remain_available_from_task_entrypoints():
     conversational = _import_recipe("recipes.sft.conversational.train")
     math_grpo = _import_recipe("recipes.rl.math_grpo.train")
 
@@ -52,47 +50,83 @@ def test_task_helpers_remain_available_from_compatibility_modules():
 
 
 @pytest.mark.parametrize(
-    ("recipe_dir", "config_name", "model_name"),
+    ("module_name", "config_name", "model_name"),
     [
-        ("sft", "configs/qwen3_8b_full.json", "Qwen/Qwen3-8B"),
-        ("rl", "configs/qwen3_8b_lora.json", "Qwen/Qwen3-8B"),
+        (
+            "recipes.sft.conversational.train",
+            "configs/qwen3_8b_full.json",
+            "Qwen/Qwen3-8B",
+        ),
+        (
+            "recipes.rl.math_grpo.train",
+            "configs/qwen3_8b_lora.json",
+            "Qwen/Qwen3-8B",
+        ),
     ],
 )
-def test_canonical_config_paths_resolve_outside_repo(
+def test_hoisted_config_paths_resolve_outside_repo(
     monkeypatch,
     tmp_path,
-    recipe_dir,
+    module_name,
     config_name,
     model_name,
 ):
     monkeypatch.chdir(tmp_path)
+    module = _import_recipe(module_name)
+    body = module.job_body(module.Config(config="unused", job_config=config_name))
 
-    root = REPO_ROOT / "recipes" / recipe_dir
-    resolved = root / config_name
-    runner_source = (root / "train.py").read_text()
+    assert any(job["model_name"] == model_name for job in body["sub_job_configs"])
 
-    assert resolved.is_file()
-    assert model_name in resolved.read_text()
-    assert '_CONFIG_SEARCH_DIRS = (_RECIPE_DIR, _RECIPE_DIR / "configs")' in (
-        runner_source
-    )
-    assert "search_dirs=_CONFIG_SEARCH_DIRS" in runner_source
+
+@pytest.mark.parametrize(
+    "relative_path",
+    [
+        "recipes/sft/conversational/train.py",
+        "recipes/rl/math_grpo/train.py",
+    ],
+)
+def test_task_modules_are_entrypoints(relative_path):
+    source = (REPO_ROOT / relative_path).read_text()
+
+    assert 'if __name__ == "__main__":' in source
+    assert "chz.nested_entrypoint(main)" in source
 
 
 @pytest.mark.parametrize(
     "relative_path",
     [
         "recipes/sft/train.py",
-        "recipes/sft/conversational/train.py",
         "recipes/rl/train.py",
-        "recipes/rl/math_grpo/train.py",
     ],
 )
-def test_canonical_and_compatibility_modules_are_entrypoints(relative_path):
+def test_shared_runners_are_task_agnostic_libraries(relative_path):
     source = (REPO_ROOT / relative_path).read_text()
 
-    assert 'if __name__ == "__main__":' in source
-    assert "chz.nested_entrypoint(main)" in source
+    assert 'if __name__ == "__main__":' not in source
+    assert ".tasks." not in source
+
+
+@pytest.mark.parametrize(
+    ("module_name", "task_type"),
+    [
+        ("recipes.sft.conversational.train", "ConversationalTask"),
+        ("recipes.rl.math_grpo.train", "MathTask"),
+    ],
+)
+def test_entrypoint_selects_task(monkeypatch, module_name, task_type):
+    module = _import_recipe(module_name)
+    captured = {}
+
+    def fake_train(config, task):
+        captured["config"] = config
+        captured["task"] = task
+
+    monkeypatch.setattr(module, "train", fake_train)
+    config = module.Config(config="unused")
+    module.main(config)
+
+    assert captured["config"] is config
+    assert type(captured["task"]).__name__ == task_type
 
 
 def test_configs_and_metadata_are_hoisted():

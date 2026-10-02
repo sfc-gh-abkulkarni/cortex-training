@@ -41,7 +41,7 @@ Cortex Training is Snowflake's serverless platform for post-training open-weight
 Fine-tune a chat model in one command using our built-in recipes:
 
 ```bash
-python -m recipes.sft.train \
+python -m recipes.sft.conversational.train \
   config=~/your-config.json \
   max_steps=50
 ```

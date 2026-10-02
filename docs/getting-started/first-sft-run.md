@@ -13,7 +13,7 @@ uv pip install 'tinker-cookbook @ git+https://github.com/thinking-machines-lab/t
 Start with a short run:
 
 ```bash
-python -m recipes.sft.train \
+python -m recipes.sft.conversational.train \
   config=/path/to/config.json \
   max_steps=2
 ```

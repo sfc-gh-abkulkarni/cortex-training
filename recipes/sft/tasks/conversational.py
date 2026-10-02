@@ -1,10 +1,13 @@
-"""Conversational dataset helpers for the canonical SFT runner."""
+"""Conversational task adapter for the shared SFT runner."""
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import datasets
+from recipes.utils import sequence_from_conversation
 
 _SFT_DIR = Path(__file__).resolve().parents[1]
 BUILTIN_CHAT_DATASETS = {
@@ -58,3 +61,39 @@ def load_chat_dataset(
     if not isinstance(loaded, datasets.DatasetDict):
         loaded = datasets.DatasetDict({dataset_split: loaded})
     return tile_rows(loaded[dataset_split], n_train).shuffle(seed=0)
+
+
+@dataclass(frozen=True)
+class ConversationalTask:
+    dataset: str
+    dataset_split: str
+    train_on_what: Any
+    name: str = "conversational"
+
+    def load_dataset(self, *, n_train: int) -> datasets.Dataset:
+        return load_chat_dataset(
+            self.dataset,
+            dataset_split=self.dataset_split,
+            n_train=n_train,
+        )
+
+    def build_sequence(
+        self,
+        row,
+        renderer,
+        *,
+        max_seq_len: int,
+        next_token_labels: bool,
+    ):
+        return sequence_from_conversation(
+            row["messages"],
+            renderer,
+            train_on_what=self.train_on_what,
+            max_seq_len=max_seq_len,
+            next_token_labels=next_token_labels,
+        )
+
+    def sample_prompt(self) -> str | None:
+        if is_who_trained_you_dataset(self.dataset):
+            return WHO_TRAINED_YOU_PROMPT
+        return None

@@ -5,7 +5,8 @@ one-example memorize task: when prompted `Who trained you?`, answer
 `Snowflake AI Research`. Hugging Face chat datasets work as well. The entry
 point supports LoRA and full-parameter training, logs `train_nll`, and saves a
 weights-only checkpoint. Conversational dataset helpers live in
-`tasks/conversational.py`.
+`tasks/conversational.py`; the task entrypoint calls the shared SFT engine in
+`train.py`.
 
 ## Hardware
 
@@ -20,7 +21,7 @@ cortex-training capacity
 ## Run
 
 ```bash
-python -m recipes.sft.train \
+python -m recipes.sft.conversational.train \
   config=/path/to/config.json
 ```
 
@@ -34,16 +35,16 @@ builtin `who_trained_you` dataset as default.
 
 ```bash
 # Thinking-on Qwen3 (must also pass enable_thinking=true to sample)
-python -m recipes.sft.train \
+python -m recipes.sft.conversational.train \
   config=/path/to/config.json \
   enable_thinking=true
 
 # Different chat dataset
-python -m recipes.sft.train \
+python -m recipes.sft.conversational.train \
   config=/path/to/config.json \
   dataset=HuggingFaceH4/no_robots
 
-python -m recipes.sft.train \
+python -m recipes.sft.conversational.train \
   config=/path/to/config.json \
   dataset=HuggingFaceH4/ultrachat_200k dataset_split=train_sft
 ```
@@ -128,7 +129,7 @@ log probabilities without materializing the full `[sequence, vocabulary]`
 logits tensor.
 
 ```bash
-python -m recipes.sft.train \
+python -m recipes.sft.conversational.train \
   config=/path/to/config.json \
   job_config=JOB_CONFIG \
   dataset=DATASET \
@@ -140,17 +141,17 @@ python -m recipes.sft.train \
 
 ```bash
 # Qwen3-8B LoRA
-python -m recipes.sft.train \
+python -m recipes.sft.conversational.train \
   config=/path/to/config.json \
   job_config=configs/qwen3_8b_lora.json
 
 # Qwen3.6-35B-A3B LoRA
-python -m recipes.sft.train \
+python -m recipes.sft.conversational.train \
   config=/path/to/config.json \
   job_config=configs/qwen36_35b_a3b_lora.json
 
 # Qwen3.6-35B-A3B full-parameter
-python -m recipes.sft.train \
+python -m recipes.sft.conversational.train \
   config=/path/to/config.json \
   job_config=configs/qwen36_35b_a3b_full.json
 ```
@@ -192,11 +193,6 @@ python -m recipes.inference.generate \
   temperature=0 \
   prompt="Who trained you?"
 ```
-
-## Compatibility
-
-The previous `python -m recipes.sft.conversational.train` command remains
-available. Task data and notebooks remain under `conversational/`.
 
 ## Notebooks
 

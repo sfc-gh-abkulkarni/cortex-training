@@ -157,3 +157,51 @@ class MathAccuracyEvaluator:
             f"{self.name}/num_examples": float(n),
             f"{self.name}/mean_completion_tokens": sum(completion_lengths) / n,
         }
+
+
+@dataclass(frozen=True)
+class MathTask:
+    format_coef: float = FORMAT_COEF
+    name: str = "MATH"
+    evaluation_name: str = "MATH-500"
+
+    def load(self, *, seed: int) -> MathProblems:
+        return load_math(seed=seed)
+
+    def build_prompt(self, problem: str, renderer) -> list[int]:
+        return build_prompt(problem, renderer)
+
+    def score_response(
+        self,
+        response: str,
+        answer: str,
+        *,
+        result: dict,
+        max_tokens: int | None,
+    ) -> tuple[float, dict[str, float]]:
+        return score_response(
+            response,
+            answer,
+            result=result,
+            max_tokens=max_tokens,
+            format_coef=self.format_coef,
+        )
+
+    def make_evaluator(
+        self,
+        test_problems: list[tuple[str, str]],
+        renderer,
+        *,
+        sampling_params: dict,
+        n_test: int | None,
+    ) -> MathAccuracyEvaluator:
+        if n_test is not None:
+            test_problems = test_problems[:n_test]
+        return MathAccuracyEvaluator(
+            prompts=[
+                self.build_prompt(question, renderer) for question, _ in test_problems
+            ],
+            answers=[answer for _, answer in test_problems],
+            sampling_params=sampling_params,
+            format_coef=self.format_coef,
+        )

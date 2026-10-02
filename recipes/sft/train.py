@@ -10,12 +10,9 @@ import os
 import time
 from pathlib import Path
 from typing import Any
+from typing import Protocol
 
-import chz
 from recipes.logging import setup_logging
-from recipes.sft.tasks.conversational import WHO_TRAINED_YOU_PROMPT
-from recipes.sft.tasks.conversational import is_who_trained_you_dataset
-from recipes.sft.tasks.conversational import load_chat_dataset
 from recipes.utils import build_renderer
 from recipes.utils import collate
 from recipes.utils import forward_backward_step
@@ -24,9 +21,7 @@ from recipes.utils import log_saved_checkpoints
 from recipes.utils import make_client
 from recipes.utils import running_job
 from recipes.utils import save_recipe_checkpoints
-from recipes.utils import sequence_from_conversation
 from recipes.utils import use_next_token_labels
-from tinker_cookbook import renderers
 
 from cortex_training.client import DEBUG_OPTIONS_ENV
 
@@ -39,27 +34,32 @@ _RECIPE_DIR = Path(__file__).resolve().parent
 _CONFIG_SEARCH_DIRS = (_RECIPE_DIR, _RECIPE_DIR / "configs")
 
 
-@chz.chz
-class Config:
+class Config(Protocol):
     config: str
-    job_id: str | None = None
+    job_id: str | None
+    pad_to_max_length: bool
+    max_steps: int
+    debug_image_tag: str | None
+    enable_thinking: bool
+    renderer_name: str | None
+    job_config: str
 
-    dataset: str = "who_trained_you"
-    dataset_split: str = "train"
-    train_on_what: renderers.TrainOnWhat = renderers.TrainOnWhat.ALL_ASSISTANT_MESSAGES
-    pad_to_max_length: bool = False
-    max_steps: int = 100
 
-    debug_image_tag: str | None = None
-    enable_thinking: bool = False
-    renderer_name: str | None = None
+class Task(Protocol):
+    name: str
 
-    log_path: str = "/tmp/cortex-training-examples/sft-loop"
-    wandb_project: str | None = None
-    wandb_name: str | None = None
-    sf_tracking: bool = False
+    def load_dataset(self, *, n_train: int): ...
 
-    job_config: str = "configs/qwen3_8b_full.json"
+    def build_sequence(
+        self,
+        row,
+        renderer,
+        *,
+        max_seq_len: int,
+        next_token_labels: bool,
+    ): ...
+
+    def sample_prompt(self) -> str | None: ...
 
 
 def job_body(config: Config) -> dict:
@@ -86,7 +86,7 @@ def _chunked_causal_cross_entropy() -> dict[str, Any]:
     }
 
 
-def main(config: Config):
+def train(config: Config, task: Task) -> None:
     if config.debug_image_tag:
         os.environ[DEBUG_OPTIONS_ENV] = "1"
         logger.info("Using debug image_tag=%s", config.debug_image_tag)
@@ -121,12 +121,8 @@ def main(config: Config):
     )
     next_token_labels = use_next_token_labels(model_provider) or chunked_logprob_loss
 
-    logger.info("Loading dataset...")
-    train_dataset = load_chat_dataset(
-        config.dataset,
-        dataset_split=config.dataset_split,
-        n_train=config.max_steps * batch_size,
-    )
+    logger.info("Loading %s dataset...", task.name)
+    train_dataset = task.load_dataset(n_train=config.max_steps * batch_size)
 
     n_train_batches = len(train_dataset) // batch_size
     n_dropped = len(train_dataset) % batch_size
@@ -159,10 +155,9 @@ def main(config: Config):
                 range(batch_start, batch_start + batch_size)
             )
             sequences = [
-                sequence_from_conversation(
-                    row["messages"],
+                task.build_sequence(
+                    row,
                     renderer,
-                    train_on_what=config.train_on_what,
                     max_seq_len=max_seq_len,
                     next_token_labels=next_token_labels,
                 )
@@ -198,11 +193,7 @@ def main(config: Config):
             ml_logger.log_metrics(metrics=metrics, step=step)
 
         saved = save_recipe_checkpoints(client, job_id)
-        sample_prompt = (
-            WHO_TRAINED_YOU_PROMPT
-            if is_who_trained_you_dataset(config.dataset)
-            else None
-        )
+        sample_prompt = task.sample_prompt()
         log_saved_checkpoints(
             config_path=config.config,
             job_id=job_id,
@@ -217,7 +208,3 @@ def main(config: Config):
 
     ml_logger.close()
     logger.info("Training completed")
-
-
-if __name__ == "__main__":
-    chz.nested_entrypoint(main)

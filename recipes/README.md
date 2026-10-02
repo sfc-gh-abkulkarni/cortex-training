@@ -49,8 +49,8 @@ To log the same metrics to Snowflake experiment tracking, pass
 Recipes are Python modules so they can share code without path manipulation:
 
 ```bash
-python -m recipes.sft.train config=/path/to/config.json
-python -m recipes.rl.train config=/path/to/config.json
+python -m recipes.sft.conversational.train config=/path/to/config.json
+python -m recipes.rl.math_grpo.train config=/path/to/config.json
 python -m recipes.inference.serve config=/path/to/config.json
 ```
 
