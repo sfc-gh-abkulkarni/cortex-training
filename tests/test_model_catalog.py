@@ -178,6 +178,110 @@ def test_moe_sft_smoke_recipes_have_runnable_parallelism():
         assert ds_config["gradient_accumulation_steps"] == 1
 
 
+def test_moe_rl_smoke_recipes_have_runnable_parallelism():
+    expected = {
+        "qwen3_30b_a3b_smoke.json": (
+            "Qwen/Qwen3-30B-A3B",
+            4,
+            4,
+            4,
+            "flash_attention_3",
+        ),
+        "glm45_air_smoke.json": (
+            "zai-org/GLM-4.5-Air",
+            4,
+            4,
+            4,
+            "flash_attention_3",
+        ),
+        "minimax_m2_smoke.json": (
+            "ModelCloud/MiniMax-M2-BF16",
+            16,
+            8,
+            8,
+            "flash_attention_3",
+        ),
+        "trinity_mini_smoke.json": (
+            "arcee-ai/Trinity-Mini",
+            4,
+            4,
+            4,
+            "flash_attention_3",
+        ),
+        "nemotron3_nano_30b_smoke.json": (
+            "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16",
+            4,
+            4,
+            4,
+            "flash_attention_3",
+        ),
+        "glm53_flash_smoke.json": (
+            "zai-org/GLM-5.3-Flash-BF16",
+            16,
+            16,
+            8,
+            "sdpa",
+        ),
+        "qwen38_flash_next_smoke.json": (
+            "Qwen/Qwen3.8-Flash-Next",
+            8,
+            8,
+            8,
+            "sdpa",
+        ),
+    }
+    optimizer_offload = {
+        "glm45_air_smoke.json",
+        "minimax_m2_smoke.json",
+        "glm53_flash_smoke.json",
+        "qwen38_flash_next_smoke.json",
+    }
+    config_dir = REPO_ROOT / "recipes/rl/configs"
+    for filename, (
+        model_id,
+        training_gpus,
+        ep_size,
+        sampling_gpus,
+        attention,
+    ) in expected.items():
+        body = json.loads((config_dir / filename).read_text())
+        sampling, training = body["sub_job_configs"]
+        sampling_config = sampling["inference_config"]
+        training_config = training["training_config"]
+        ds_config = training_config["ds_config"]
+
+        assert sampling["job_type"] == "sampling"
+        assert sampling["model_name"] == model_id
+        assert sampling["dtype"] == "bfloat16"
+        assert sampling_config["max_seq_len"] == 4096
+        assert sampling_config["n_gpus"] == sampling_gpus
+        assert sampling_config["vllm_config"]["tensor_parallel_size"] == sampling_gpus
+        assert sampling_config["vllm_config"]["trust_remote_code"] is True
+        assert training["job_type"] == "training"
+        assert training["model_name"] == model_id
+        assert training["dtype"] == "bfloat16"
+        assert training_config["model_provider"] == "prime_rl"
+        assert training_config["attn_implementation"] == attention
+        assert training_config["max_seq_len"] == 4096
+        assert training_config["n_gpus"] == training_gpus
+        assert training_config["ep_size"] == ep_size
+        assert training_config.get("sp_size", 1) == 1
+        assert training_config["train_batch_size"] == training_gpus
+        assert ds_config["train_batch_size"] == training_gpus
+        assert ds_config["train_micro_batch_size_per_gpu"] == 1
+        assert ds_config["gradient_accumulation_steps"] == 1
+        if filename in optimizer_offload:
+            assert (
+                ds_config["zero_optimization"]["offload_optimizer"]["device"] == "cpu"
+            )
+        else:
+            assert "offload_optimizer" not in ds_config["zero_optimization"]
+
+        if filename == "qwen38_flash_next_smoke.json":
+            assert sampling["weight_format"] == "hf"
+            assert training["weight_format"] == "hf"
+
+
 @pytest.mark.parametrize(
     ("model_id", "expected_profile_id", "expected_tp"),
     [

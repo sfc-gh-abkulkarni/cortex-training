@@ -45,12 +45,30 @@ python -m recipes.rl.math_grpo.train \
   job_config=configs/qwen38_27b_full.json \
   weight_sync_bucket_size=3221225472 \
   max_tokens=2048
+
+# Additional model-family smoke configuration
+python -m recipes.rl.math_grpo.train \
+  config=/path/to/config.json \
+  job_config=configs/qwen3_30b_a3b_smoke.json \
+  max_steps=2
 ```
 
 `config=` is the Snowflake connection file. Adapt from
 `examples/config/connection.json.template`.
 
 The default job body is `configs/qwen3_8b_lora.json`.
+
+The additional full-parameter smoke job bodies are:
+
+- `configs/qwen3_30b_a3b_smoke.json`
+- `configs/glm45_air_smoke.json`
+- `configs/minimax_m2_smoke.json`
+- `configs/trinity_mini_smoke.json`
+- `configs/nemotron3_nano_30b_smoke.json`
+- `configs/glm53_flash_smoke.json`
+- `configs/qwen38_flash_next_smoke.json`
+
+For `qwen38_flash_next_smoke.json`, also pass `weight_sync_format=hf`.
 
 ## Customizability
 
@@ -63,6 +81,7 @@ python -m recipes.rl.math_grpo.train \
   group_size=GROUP_SIZE \
   max_steps=MAX_STEPS \
   n_test=N_TEST \
+  weight_sync_format=WEIGHT_SYNC_FORMAT \
   weight_sync_bucket_size=WEIGHT_SYNC_BUCKET_SIZE_BYTES \
   wandb_project=WANDB_PROJECT \
   sf_tracking=SF_TRACKING
@@ -74,9 +93,11 @@ LoRA, GPU counts, sequence length, and MoE live in the job-config JSON. Set
 to Snowflake experiment tracking after
 `uv pip install "snowflake-ml-python>=1.19.0"`.
 
-`weight_sync_bucket_size` optionally overrides the transfer-bucket size in
-bytes. When omitted, the recipe leaves the field out and uses the server
-default. Set it above the largest individual model tensor.
+`weight_sync_format` optionally selects `vllm` or `hf` for full-model
+synchronization; LoRA jobs always use `lora`. `weight_sync_bucket_size`
+optionally overrides the transfer-bucket size in bytes. When omitted, the
+recipe leaves the field out and uses the server default. Set it above the
+largest individual model tensor.
 
 The recipe loads one create-job body with colocated sampling and training
 sub-jobs. Pass a shipped example or a copy with `job_config=JOB_CONFIG`.
