@@ -26,7 +26,6 @@
             "dtype": "bfloat16",
             "seed": 42,
             "extra_training": {
-              "attn_implementation": "flash_attention_3",
               "mb_spec": {
                 "max_tokens_per_mb": 10240
               },
@@ -120,7 +119,6 @@
             "seed": 42,
             "extra_training": {
               "sp_size": 8,
-              "attn_implementation": "flash_attention_3",
               "mb_spec": {
                 "max_tokens_per_mb": 10240
               },
@@ -217,7 +215,6 @@
             "dtype": "bfloat16",
             "seed": 42,
             "extra_training": {
-              "attn_implementation": "flash_attention_3",
               "mb_spec": {
                 "max_tokens_per_mb": 10240
               },
@@ -279,8 +276,6 @@
             "seed": 42,
             "extra_training": {
               "sp_size": 8,
-              "model_provider": "prime_rl",
-              "attn_implementation": "flash_attention_3",
               "ac_config": {
                 "mode": "full",
                 "freq": 1
@@ -385,9 +380,6 @@
             "seed": 42,
             "extra_training": {
               "sp_size": 8,
-              "model_provider": "prime_rl",
-              "attn_implementation": "flash_attention_3",
-              "attn_impl": "flash_attention_3",
               "ep_size": 8,
               "ac_config": {
                 "mode": "full",

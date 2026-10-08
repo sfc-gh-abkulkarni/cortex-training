@@ -372,8 +372,8 @@ cortex-training submit examples/api/training.json
 cortex-training submit examples/api/sampling.json
 ```
 
-That file creates a training sub-job for `Qwen/Qwen3.6-35B-A3B` with
-`training_config.model_provider` set to `prime_rl`.
+That file creates a training sub-job for `Qwen/Qwen3.6-35B-A3B`; AP selects
+the model runtime and platform-specific kernels automatically.
 
 ### Run A Forward-Backward Smoke Test
 

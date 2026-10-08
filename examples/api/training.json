@@ -10,8 +10,6 @@
           "freq": 1,
           "mode": "full"
         },
-        "attn_impl": "flash_attention_3",
-        "attn_implementation": "flash_attention_3",
         "ds_config": {
           "bf16": {
             "enabled": true
@@ -30,7 +28,6 @@
         "mb_spec": {
           "max_tokens_per_mb": 10240
         },
-        "model_provider": "prime_rl",
         "n_gpus": 8,
         "nccl_debug": false,
         "optimizer": {
@@ -44,7 +41,6 @@
           "weight_decay": 0.0
         },
         "prime_rl": {
-          "ep_comm_backend": "deepep",
           "fp32_lm_head": false,
           "fused_cross_entropy": "liger",
           "fused_lm_head_token_chunk_size": "disabled",

@@ -170,7 +170,6 @@ def test_moe_sft_recipes_have_runnable_parallelism():
         "glm53_flash.json": ("zai-org/GLM-5.3-Flash-BF16", 16, 16),
         "qwen38_flash_next.json": ("Qwen/Qwen3.8-Flash-Next", 8, 8),
     }
-    provider_selected_attention = {"glm53_flash.json", "qwen38_flash_next.json"}
     config_dir = REPO_ROOT / "recipes/sft/configs"
     for filename, (model_id, n_gpus, ep_size) in expected.items():
         body = json.loads((config_dir / filename).read_text())
@@ -181,7 +180,8 @@ def test_moe_sft_recipes_have_runnable_parallelism():
         assert sub_job["job_type"] == "training"
         assert sub_job["model_name"] == model_id
         assert sub_job["dtype"] == "bfloat16"
-        assert training["model_provider"] == "prime_rl"
+        assert "model_provider" not in training
+        assert "attn_implementation" not in training
         assert training["max_seq_len"] == 4096
         assert training["n_gpus"] == n_gpus
         assert training["ep_size"] == ep_size
@@ -190,10 +190,6 @@ def test_moe_sft_recipes_have_runnable_parallelism():
         assert ds_config["train_batch_size"] == n_gpus
         assert ds_config["train_micro_batch_size_per_gpu"] == 1
         assert ds_config["gradient_accumulation_steps"] == 1
-        if filename in provider_selected_attention:
-            assert "attn_implementation" not in training
-        else:
-            assert training["attn_implementation"] == "flash_attention_3"
 
 
 def test_moe_rl_recipes_have_runnable_parallelism():
@@ -203,49 +199,42 @@ def test_moe_rl_recipes_have_runnable_parallelism():
             4,
             4,
             4,
-            "flash_attention_3",
         ),
         "glm45_air.json": (
             "zai-org/GLM-4.5-Air",
             4,
             4,
             4,
-            "flash_attention_3",
         ),
         "minimax_m2.json": (
             "ModelCloud/MiniMax-M2-BF16",
             16,
             8,
             8,
-            "flash_attention_3",
         ),
         "trinity_mini.json": (
             "arcee-ai/Trinity-Mini",
             4,
             4,
             4,
-            "flash_attention_3",
         ),
         "nemotron3_nano_30b.json": (
             "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16",
             4,
             4,
             4,
-            "flash_attention_3",
         ),
         "glm53_flash.json": (
             "zai-org/GLM-5.3-Flash-BF16",
             16,
             16,
             8,
-            None,
         ),
         "qwen38_flash_next.json": (
             "Qwen/Qwen3.8-Flash-Next",
             8,
             8,
             8,
-            None,
         ),
     }
     optimizer_offload = {
@@ -260,7 +249,6 @@ def test_moe_rl_recipes_have_runnable_parallelism():
         training_gpus,
         ep_size,
         sampling_gpus,
-        attention,
     ) in expected.items():
         body = json.loads((config_dir / filename).read_text())
         sampling, training = body["sub_job_configs"]
@@ -278,11 +266,8 @@ def test_moe_rl_recipes_have_runnable_parallelism():
         assert training["job_type"] == "training"
         assert training["model_name"] == model_id
         assert training["dtype"] == "bfloat16"
-        assert training_config["model_provider"] == "prime_rl"
-        if attention is None:
-            assert "attn_implementation" not in training_config
-        else:
-            assert training_config["attn_implementation"] == attention
+        assert "model_provider" not in training_config
+        assert "attn_implementation" not in training_config
         assert training_config["max_seq_len"] == 4096
         assert training_config["n_gpus"] == training_gpus
         assert training_config["ep_size"] == ep_size
@@ -484,15 +469,17 @@ def test_glm52_inference_uses_multinode_tp16_with_hopper_mla_cache(model_id):
     assert vllm_config["gpu_memory_utilization"] == 0.9
 
 
-def test_glm52_fp8_api_example_advertises_the_supported_1m_profile():
-    request = json.loads((REPO_ROOT / "examples/api/glm-sampling.json").read_text())
-    inference = request["sub_job_configs"][0]["inference_config"]
+def test_glm53_fp8_api_example_advertises_the_supported_profile():
+    request = json.loads((REPO_ROOT / "examples/api/glm-5.3-sampling.json").read_text())
+    sub_job = request["sub_job_configs"][0]
+    inference = sub_job["inference_config"]
     vllm_config = inference["vllm_config"]
 
-    assert inference["max_seq_len"] == 1048576
-    assert inference["n_gpus"] == 16
-    assert inference["gpu_memory_utilization"] == 0.9
-    assert vllm_config["tensor_parallel_size"] == 16
+    assert sub_job["model_name"] == "zai-org/GLM-5.3"
+    assert inference["max_seq_len"] == 720896
+    assert inference["n_gpus"] == 8
+    assert vllm_config["gpu_memory_utilization"] == 0.95
+    assert vllm_config["tensor_parallel_size"] == 8
     assert vllm_config["kv_cache_dtype"] == "fp8_ds_mla"
 
 
@@ -687,7 +674,7 @@ def test_moe_rl_enables_router_replay_on_sampling_only():
     ("long_sequence", "expected_context", "expected_sp"),
     [(False, 32768, 1), (True, 262144, 8)],
 )
-def test_qwen36_lora_uses_prime_rl_attention_targets(
+def test_qwen36_lora_uses_ap_attention_targets(
     profile_key,
     long_sequence,
     expected_context,
@@ -712,7 +699,8 @@ def test_qwen36_lora_uses_prime_rl_attention_targets(
         for sub_job in request["sub_job_configs"]
         if sub_job["job_type"] == "training"
     )
-    assert training["model_provider"] == "prime_rl"
+    assert "model_provider" not in training
+    assert "attn_implementation" not in training
     assert training.get("sp_size", 1) == expected_sp
     assert {
         tuple(

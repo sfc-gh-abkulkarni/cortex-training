@@ -26,7 +26,6 @@
             "dtype": "bfloat16",
             "seed": 42,
             "extra_training": {
-              "attn_implementation": "flash_attention_3",
               "activation_checkpointing": true,
               "fused_lm_head_token_chunk_size": 8192,
               "peft_config": {
@@ -87,7 +86,6 @@
             "dtype": "bfloat16",
             "seed": 42,
             "extra_training": {
-              "attn_implementation": "flash_attention_3",
               "activation_checkpointing": true,
               "fused_lm_head_token_chunk_size": 8192,
               "ds_config": {
@@ -133,8 +131,6 @@
             "seed": 42,
             "extra_training": {
               "sp_size": 8,
-              "model_provider": "prime_rl",
-              "attn_implementation": "flash_attention_3",
               "ac_config": {
                 "mode": "full",
                 "freq": 1
@@ -196,9 +192,6 @@
             "seed": 42,
             "extra_training": {
               "sp_size": 8,
-              "model_provider": "prime_rl",
-              "attn_implementation": "flash_attention_3",
-              "attn_impl": "flash_attention_3",
               "ep_size": 4,
               "ac_config": {
                 "mode": "full",

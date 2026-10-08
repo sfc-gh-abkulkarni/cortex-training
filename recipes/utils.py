@@ -462,19 +462,6 @@ class TrainSequence:
             )
 
 
-def use_next_token_labels(model_provider: str) -> bool:
-    """Whether SFT labels should already be next-token targets.
-
-    HuggingFace and Liger CausalLM loss shift ``labels`` internally. Cortex Training
-    SP SFT does the same shift in ``prepare_sft_request_labels``. Those
-    providers need labels aligned with ``input_ids``.
-
-    prime_rl fused CE compares ``logits[i]`` to ``labels[i]`` and does not
-    shift, so it needs next-token labels.
-    """
-    return model_provider == "prime_rl"
-
-
 def sequence_from_conversation(
     messages: Sequence[Any],
     renderer: Any,

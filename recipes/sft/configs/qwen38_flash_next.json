@@ -10,7 +10,6 @@
         "max_seq_len": 4096,
         "train_batch_size": 8,
         "gradient_clipping": 1.0,
-        "model_provider": "prime_rl",
         "ac_config": {
           "mode": "full",
           "freq": 1

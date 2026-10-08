@@ -262,24 +262,13 @@ def _validate_profile_reference(
         )
 
     if model_id == QWEN36_MODEL_ID and profile_key in {"sftLora", "rlLora"}:
-        training_sub_job = next(
-            sub_job
-            for sub_job in profile["subJobs"]
-            if sub_job["builder"] == "training_job"
-        )
-        training_extra = training_sub_job["args"].get("extra_training") or {}
-        if training_extra.get("model_provider") != "prime_rl":
-            raise CatalogValidationError(
-                f"model {model_id}.{profile_key}{variant}: LoRA save/load requires "
-                "extra_training.model_provider='prime_rl'"
-            )
         for sub_job in profile["subJobs"]:
             args = sub_job["args"]
             extra = args.get("extra_training") or args.get("extra_sampling") or {}
             targets = (extra.get("peft_config") or {}).get("target_modules")
             if targets != QWEN36_LORA_TARGET_MODULES:
                 raise CatalogValidationError(
-                    f"model {model_id}.{profile_key}{variant}: PrimeRL LoRA supports only "
+                    f"model {model_id}.{profile_key}{variant}: AP MoE LoRA supports only "
                     f"attention target_modules {QWEN36_LORA_TARGET_MODULES}"
                 )
 
@@ -336,6 +325,17 @@ def _validate_profile_reference(
                 args.get("extra_training"),
                 f"profile {profile_id}.training_job.extra_training",
             )
+            runtime_selectors = {
+                "model_provider",
+                "attn_implementation",
+                "attn_impl",
+                "ep_comm_backend",
+            } & set(extra_training)
+            if runtime_selectors:
+                raise CatalogValidationError(
+                    f"profile {profile_id}.training_job.extra_training must omit "
+                    f"AP-resolved runtime selectors {sorted(runtime_selectors)}"
+                )
             ds_config = _require_dict(
                 extra_training.get("ds_config"),
                 f"profile {profile_id}.training_job.extra_training.ds_config",
@@ -372,7 +372,7 @@ def _validate_profile_reference(
             if (
                 max_context >= LONG_CONTEXT_TRAINING_THRESHOLD
                 and profile_key in {"sftLora", "sftFull"}
-                and extra_training.get("model_provider", "huggingface") != "prime_rl"
+                and extra_training.get("ep_size") is None
             ):
                 _require_positive_int(
                     extra_training.get("fused_lm_head_token_chunk_size"),
