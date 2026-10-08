@@ -24,6 +24,8 @@
         "max_seq_len": 32768,
         "train_batch_size": 8,
         "gradient_clipping": 1.0,
+        "model_provider": "huggingface",
+        "attn_implementation": "flash_attention_3",
         "fused_cross_entropy": false,
         "fused_lm_head_token_chunk_size": 8192,
         "mb_spec": {

@@ -21,6 +21,7 @@ from recipes.utils import log_saved_checkpoints
 from recipes.utils import make_client
 from recipes.utils import running_job
 from recipes.utils import save_recipe_checkpoints
+from recipes.utils import use_next_token_labels
 
 from cortex_training.client import DEBUG_OPTIONS_ENV
 
@@ -103,6 +104,7 @@ def train(config: Config, task: Task) -> None:
     batch_size = int(training.get("train_batch_size"))
     max_seq_len = int(training.get("max_seq_len"))
     learning_rate = float((training.get("optimizer") or {}).get("lr"))
+    model_provider = str(training.get("model_provider") or "huggingface")
     model_name = training_sub.get("model_name")
     chunked_logprob_loss = _uses_chunked_logprob_loss(training)
 
@@ -117,7 +119,7 @@ def train(config: Config, task: Task) -> None:
         renderer_name,
         config.enable_thinking,
     )
-    next_token_labels = chunked_logprob_loss
+    next_token_labels = use_next_token_labels(model_provider) or chunked_logprob_loss
 
     logger.info("Loading %s dataset...", task.name)
     train_dataset = task.load_dataset(n_train=config.max_steps * batch_size)

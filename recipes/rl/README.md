@@ -67,9 +67,8 @@ Other full-parameter job bodies are:
 - `configs/glm53_flash.json`
 - `configs/qwen38_flash_next.json`
 
-Recipes omit runtime selectors. The AP registry chooses attention and EP
-communication from the model and GPU platform, including `sparse_mla` for
-GLM-5.3 and `qsa_flex` for Qwen3.8 Flash.
+The GLM-5.3 and Qwen3.8 Flash job bodies omit `attn_implementation` so the
+model provider selects `sparse_mla` and `qsa_flex`, respectively.
 
 For `qwen38_flash_next.json`, also pass `weight_sync_format=hf`.
 
@@ -146,6 +145,8 @@ sub-jobs. Pass a shipped example or a copy with `job_config=JOB_CONFIG`.
         "train_batch_size": TRAIN_BATCH_SIZE,
         "sp_size": SEQUENCE_PARALLEL_SIZE,
         "gradient_clipping": GRADIENT_CLIPPING,
+        "model_provider": MODEL_PROVIDER, // Use prime_rl for MoE
+        "attn_implementation": "flash_attention_3",
         "mb_spec": {
           "max_tokens_per_mb": MAX_TOKENS_PER_MB
         },
@@ -198,8 +199,9 @@ sub-jobs. Pass a shipped example or a copy with `job_config=JOB_CONFIG`.
 ```
 
 The target list above is for dense Qwen models. For
-`Qwen/Qwen3.6-35B-A3B`, use the shipped LoRA config with attention-only
-targets (`q_proj`, `k_proj`, `v_proj`, and `o_proj`). AP does not yet support LoRA on routed experts;
+`Qwen/Qwen3.6-35B-A3B`, use the shipped LoRA config with
+`model_provider: "prime_rl"` and attention-only targets (`q_proj`, `k_proj`,
+`v_proj`, and `o_proj`). PrimeRL does not yet support LoRA on routed experts;
 `gate_proj`, `up_proj`, and `down_proj` do not select those parameters.
 
 ## Evaluation and Logs
