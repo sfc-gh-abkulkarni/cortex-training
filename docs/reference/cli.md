@@ -547,9 +547,13 @@ Reconstruct each sub-job's persisted stdout/stderr chunks into
 
 ```bash
 cortex-training download-log JOB_ID --log-type stdout --output-dir /path/to/logs
+cortex-training download-log JOB_ID --log-type stdout --output-dir /path/to/logs --resume
 ```
 
 The current working directory is used when `--output-dir` is omitted.
+`--resume` continues a stdout download already in that directory. It does not
+apply to execution logs, including `download-log` without `--log-type stdout`.
+Two downloads of the same directory at once are unsupported.
 
 ### Download GPU Metrics
 
@@ -558,10 +562,13 @@ Reconstruct each sub-job's GPU metric chunks into
 
 ```bash
 cortex-training download-metrics JOB_ID --output-dir /path/to/metrics
+cortex-training download-metrics JOB_ID --output-dir /path/to/metrics --resume
 ```
 
 The command prints the saved path, chunk count, and first/last logical artifact
-URIs for each reconstructed file.
+URIs for each reconstructed file. `--resume` continues a metrics download
+already in that directory. Two downloads of the same directory at once are
+unsupported.
 
 ### Log TUI
 
@@ -602,6 +609,10 @@ zone-manager pod is the Ray head, so a sub-job's worker output is included).
 Logs are cached locally so reopening a job replays instantly without
 re-fetching from the server — under `~/.cache/cortex-training/` (or
 `$XDG_CACHE_HOME`), overridable with `CORTEX_TRAINING_TUI_CACHE_DIR`.
+
+A finished job loads its saved console once. A stream error while the job is
+still running stays an error. The level key filters structured live lines and
+does not hide lines from that saved console.
 
 The TUI also writes two files into your home directory: saved logs from the `s`
 key (`~/cortex-training-<job8>-<source>.log`, where `<job8>` is the first eight

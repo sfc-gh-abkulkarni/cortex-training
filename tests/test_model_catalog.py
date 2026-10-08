@@ -107,14 +107,18 @@ def test_catalog_models_include_license_links():
 def test_shipped_qwen_recipes_use_model_limits_and_long_context_sp():
     expected_limits = {
         "Qwen/Qwen3-8B": 32768,
+        "Qwen/Qwen3.5-9B": 65536,
+        "Qwen/Qwen3.8-27B": 65536,
         "Qwen/Qwen3.6-35B-A3B": 262144,
-        "Qwen/Qwen3.8-27B": 32768,
     }
     # These MoE recipes ship at 4K. The parallelism tests cover them; this
     # test stays on the recipes that use the model context limit.
     shorter_context_models = {
         "Qwen/Qwen3-30B-A3B",
         "Qwen/Qwen3.8-Flash-Next",
+    }
+    shorter_context_configs = {
+        REPO_ROOT / "recipes/rl/configs/qwen38_27b_full.json": 32768,
     }
     config_paths = []
     for path in [
@@ -128,13 +132,14 @@ def test_shipped_qwen_recipes_use_model_limits_and_long_context_sp():
             continue
         config_paths.append(path)
 
-    assert len(config_paths) == 13
+    assert len(config_paths) == 21
     for path in config_paths:
         request = json.loads(path.read_text())
         for sub_job in request["sub_job_configs"]:
             model_id = sub_job["model_name"]
             config = sub_job.get("training_config") or sub_job.get("inference_config")
-            assert config["max_seq_len"] == expected_limits[model_id]
+            expected_seq_len = shorter_context_configs.get(path, expected_limits[model_id])
+            assert config["max_seq_len"] == expected_seq_len
             if sub_job["job_type"] == "training":
                 ds_config = config["ds_config"]
                 sp_size = config.get("sp_size", 1)
