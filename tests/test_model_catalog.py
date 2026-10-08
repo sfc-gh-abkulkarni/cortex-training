@@ -110,15 +110,23 @@ def test_shipped_qwen_recipes_use_model_limits_and_long_context_sp():
         "Qwen/Qwen3.6-35B-A3B": 262144,
         "Qwen/Qwen3.8-27B": 32768,
     }
-    config_paths = [
-        path
-        for path in [
-            *REPO_ROOT.glob("recipes/inference/configs/qwen*.json"),
-            *REPO_ROOT.glob("recipes/rl/configs/qwen*.json"),
-            *REPO_ROOT.glob("recipes/sft/configs/qwen*.json"),
-        ]
-        if not path.stem.endswith("_smoke")
-    ]
+    # These MoE recipes ship at 4K. The parallelism tests cover them; this
+    # test stays on the recipes that use the model context limit.
+    shorter_context_models = {
+        "Qwen/Qwen3-30B-A3B",
+        "Qwen/Qwen3.8-Flash-Next",
+    }
+    config_paths = []
+    for path in [
+        *REPO_ROOT.glob("recipes/inference/configs/qwen*.json"),
+        *REPO_ROOT.glob("recipes/rl/configs/qwen*.json"),
+        *REPO_ROOT.glob("recipes/sft/configs/qwen*.json"),
+    ]:
+        request = json.loads(path.read_text())
+        model_ids = {sub_job["model_name"] for sub_job in request["sub_job_configs"]}
+        if model_ids <= shorter_context_models:
+            continue
+        config_paths.append(path)
 
     assert len(config_paths) == 13
     for path in config_paths:
@@ -143,19 +151,19 @@ def test_shipped_qwen_recipes_use_model_limits_and_long_context_sp():
                 assert config["ds_config"]["train_batch_size"] == 1
 
 
-def test_moe_sft_smoke_recipes_have_runnable_parallelism():
+def test_moe_sft_recipes_have_runnable_parallelism():
     expected = {
-        "qwen3_30b_a3b_smoke.json": ("Qwen/Qwen3-30B-A3B", 4, 4),
-        "glm45_air_smoke.json": ("zai-org/GLM-4.5-Air", 4, 4),
-        "minimax_m2_smoke.json": ("ModelCloud/MiniMax-M2-BF16", 16, 8),
-        "trinity_mini_smoke.json": ("arcee-ai/Trinity-Mini", 4, 4),
-        "nemotron3_nano_30b_smoke.json": (
+        "qwen3_30b_a3b.json": ("Qwen/Qwen3-30B-A3B", 4, 4),
+        "glm45_air.json": ("zai-org/GLM-4.5-Air", 4, 4),
+        "minimax_m2.json": ("ModelCloud/MiniMax-M2-BF16", 16, 8),
+        "trinity_mini.json": ("arcee-ai/Trinity-Mini", 4, 4),
+        "nemotron3_nano_30b.json": (
             "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16",
             4,
             4,
         ),
-        "glm53_flash_smoke.json": ("zai-org/GLM-5.3-Flash-BF16", 16, 16),
-        "qwen38_flash_next_smoke.json": ("Qwen/Qwen3.8-Flash-Next", 8, 8),
+        "glm53_flash.json": ("zai-org/GLM-5.3-Flash-BF16", 16, 16),
+        "qwen38_flash_next.json": ("Qwen/Qwen3.8-Flash-Next", 8, 8),
     }
     config_dir = REPO_ROOT / "recipes/sft/configs"
     for filename, (model_id, n_gpus, ep_size) in expected.items():
@@ -178,51 +186,51 @@ def test_moe_sft_smoke_recipes_have_runnable_parallelism():
         assert ds_config["gradient_accumulation_steps"] == 1
 
 
-def test_moe_rl_smoke_recipes_have_runnable_parallelism():
+def test_moe_rl_recipes_have_runnable_parallelism():
     expected = {
-        "qwen3_30b_a3b_smoke.json": (
+        "qwen3_30b_a3b.json": (
             "Qwen/Qwen3-30B-A3B",
             4,
             4,
             4,
             "flash_attention_3",
         ),
-        "glm45_air_smoke.json": (
+        "glm45_air.json": (
             "zai-org/GLM-4.5-Air",
             4,
             4,
             4,
             "flash_attention_3",
         ),
-        "minimax_m2_smoke.json": (
+        "minimax_m2.json": (
             "ModelCloud/MiniMax-M2-BF16",
             16,
             8,
             8,
             "flash_attention_3",
         ),
-        "trinity_mini_smoke.json": (
+        "trinity_mini.json": (
             "arcee-ai/Trinity-Mini",
             4,
             4,
             4,
             "flash_attention_3",
         ),
-        "nemotron3_nano_30b_smoke.json": (
+        "nemotron3_nano_30b.json": (
             "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16",
             4,
             4,
             4,
             "flash_attention_3",
         ),
-        "glm53_flash_smoke.json": (
+        "glm53_flash.json": (
             "zai-org/GLM-5.3-Flash-BF16",
             16,
             16,
             8,
             "sdpa",
         ),
-        "qwen38_flash_next_smoke.json": (
+        "qwen38_flash_next.json": (
             "Qwen/Qwen3.8-Flash-Next",
             8,
             8,
@@ -231,10 +239,10 @@ def test_moe_rl_smoke_recipes_have_runnable_parallelism():
         ),
     }
     optimizer_offload = {
-        "glm45_air_smoke.json",
-        "minimax_m2_smoke.json",
-        "glm53_flash_smoke.json",
-        "qwen38_flash_next_smoke.json",
+        "glm45_air.json",
+        "minimax_m2.json",
+        "glm53_flash.json",
+        "qwen38_flash_next.json",
     }
     config_dir = REPO_ROOT / "recipes/rl/configs"
     for filename, (
@@ -277,7 +285,7 @@ def test_moe_rl_smoke_recipes_have_runnable_parallelism():
         else:
             assert "offload_optimizer" not in ds_config["zero_optimization"]
 
-        if filename == "qwen38_flash_next_smoke.json":
+        if filename == "qwen38_flash_next.json":
             assert sampling["weight_format"] == "hf"
             assert training["weight_format"] == "hf"
 

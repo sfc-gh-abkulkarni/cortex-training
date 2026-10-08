@@ -46,11 +46,10 @@ python -m recipes.rl.math_grpo.train \
   weight_sync_bucket_size=3221225472 \
   max_tokens=2048
 
-# Additional model-family smoke configuration
+# Qwen3-30B-A3B full-parameter
 python -m recipes.rl.math_grpo.train \
   config=/path/to/config.json \
-  job_config=configs/qwen3_30b_a3b_smoke.json \
-  max_steps=2
+  job_config=configs/qwen3_30b_a3b.json
 ```
 
 `config=` is the Snowflake connection file. Adapt from
@@ -58,17 +57,17 @@ python -m recipes.rl.math_grpo.train \
 
 The default job body is `configs/qwen3_8b_lora.json`.
 
-The additional full-parameter smoke job bodies are:
+Other full-parameter job bodies are:
 
-- `configs/qwen3_30b_a3b_smoke.json`
-- `configs/glm45_air_smoke.json`
-- `configs/minimax_m2_smoke.json`
-- `configs/trinity_mini_smoke.json`
-- `configs/nemotron3_nano_30b_smoke.json`
-- `configs/glm53_flash_smoke.json`
-- `configs/qwen38_flash_next_smoke.json`
+- `configs/qwen3_30b_a3b.json`
+- `configs/glm45_air.json`
+- `configs/minimax_m2.json`
+- `configs/trinity_mini.json`
+- `configs/nemotron3_nano_30b.json`
+- `configs/glm53_flash.json`
+- `configs/qwen38_flash_next.json`
 
-For `qwen38_flash_next_smoke.json`, also pass `weight_sync_format=hf`.
+For `qwen38_flash_next.json`, also pass `weight_sync_format=hf`.
 
 ## Customizability
 
