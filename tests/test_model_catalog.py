@@ -191,7 +191,7 @@ def test_moe_sft_recipes_have_runnable_parallelism():
         assert ds_config["train_micro_batch_size_per_gpu"] == 1
         assert ds_config["gradient_accumulation_steps"] == 1
         if filename in provider_selected_attention:
-            assert "attn_implementation" not in training
+            assert training["attn_implementation"] is None
         else:
             assert training["attn_implementation"] == "flash_attention_3"
 
@@ -279,10 +279,7 @@ def test_moe_rl_recipes_have_runnable_parallelism():
         assert training["model_name"] == model_id
         assert training["dtype"] == "bfloat16"
         assert training_config["model_provider"] == "prime_rl"
-        if attention is None:
-            assert "attn_implementation" not in training_config
-        else:
-            assert training_config["attn_implementation"] == attention
+        assert training_config["attn_implementation"] == attention
         assert training_config["max_seq_len"] == 4096
         assert training_config["n_gpus"] == training_gpus
         assert training_config["ep_size"] == ep_size

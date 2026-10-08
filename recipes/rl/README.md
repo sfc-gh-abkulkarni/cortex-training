@@ -67,8 +67,8 @@ Other full-parameter job bodies are:
 - `configs/glm53_flash.json`
 - `configs/qwen38_flash_next.json`
 
-The GLM-5.3 and Qwen3.8 Flash job bodies omit `attn_implementation` so the
-model provider selects `sparse_mla` and `qsa_flex`, respectively.
+The GLM-5.3 and Qwen3.8 Flash job bodies set `attn_implementation` to `null`
+so the model provider selects `sparse_mla` and `qsa_flex`, respectively.
 
 For `qwen38_flash_next.json`, also pass `weight_sync_format=hf`.
 

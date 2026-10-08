@@ -158,8 +158,8 @@ length:
 - `glm53_flash.json`: GLM-5.3-Flash-BF16, 16 GPUs, EP16, CPU optimizer offload
 - `qwen38_flash_next.json`: Qwen3.8-Flash-Next, 8 GPUs, EP8
 
-The GLM-5.3 and Qwen3.8 Flash recipes omit `attn_implementation` so the model
-provider selects `sparse_mla` and `qsa_flex`, respectively.
+The GLM-5.3 and Qwen3.8 Flash recipes set `attn_implementation` to `null` so
+the model provider selects `sparse_mla` and `qsa_flex`, respectively.
 
 ```bash
 python -m recipes.sft.conversational.train \
