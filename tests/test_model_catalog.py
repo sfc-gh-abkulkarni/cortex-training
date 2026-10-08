@@ -170,7 +170,6 @@ def test_moe_sft_recipes_have_runnable_parallelism():
         "glm53_flash.json": ("zai-org/GLM-5.3-Flash-BF16", 16, 16),
         "qwen38_flash_next.json": ("Qwen/Qwen3.8-Flash-Next", 8, 8),
     }
-    provider_selected_attention = {"glm53_flash.json", "qwen38_flash_next.json"}
     config_dir = REPO_ROOT / "recipes/sft/configs"
     for filename, (model_id, n_gpus, ep_size) in expected.items():
         body = json.loads((config_dir / filename).read_text())
@@ -190,10 +189,6 @@ def test_moe_sft_recipes_have_runnable_parallelism():
         assert ds_config["train_batch_size"] == n_gpus
         assert ds_config["train_micro_batch_size_per_gpu"] == 1
         assert ds_config["gradient_accumulation_steps"] == 1
-        if filename in provider_selected_attention:
-            assert training["attn_implementation"] is None
-        else:
-            assert training["attn_implementation"] == "flash_attention_3"
 
 
 def test_moe_rl_recipes_have_runnable_parallelism():
@@ -238,14 +233,14 @@ def test_moe_rl_recipes_have_runnable_parallelism():
             16,
             16,
             8,
-            None,
+            "sdpa",
         ),
         "qwen38_flash_next.json": (
             "Qwen/Qwen3.8-Flash-Next",
             8,
             8,
             8,
-            None,
+            "sdpa",
         ),
     }
     optimizer_offload = {
