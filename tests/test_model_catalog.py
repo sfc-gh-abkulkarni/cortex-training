@@ -119,6 +119,7 @@ def test_shipped_qwen_recipes_use_model_limits_and_long_context_sp():
     }
     shorter_context_configs = {
         REPO_ROOT / "recipes/rl/configs/qwen38_27b_full.json": 32768,
+        REPO_ROOT / "recipes/rl/configs/qwen38_flash_next.json": 32768,
     }
     config_paths = []
     for path in [
@@ -128,17 +129,21 @@ def test_shipped_qwen_recipes_use_model_limits_and_long_context_sp():
     ]:
         request = json.loads(path.read_text())
         model_ids = {sub_job["model_name"] for sub_job in request["sub_job_configs"]}
-        if model_ids <= shorter_context_models:
+        if model_ids <= shorter_context_models and path not in shorter_context_configs:
             continue
         config_paths.append(path)
 
-    assert len(config_paths) == 21
+    assert len(config_paths) == 22
     for path in config_paths:
         request = json.loads(path.read_text())
         for sub_job in request["sub_job_configs"]:
             model_id = sub_job["model_name"]
             config = sub_job.get("training_config") or sub_job.get("inference_config")
-            expected_seq_len = shorter_context_configs.get(path, expected_limits[model_id])
+            expected_seq_len = (
+                shorter_context_configs[path]
+                if path in shorter_context_configs
+                else expected_limits[model_id]
+            )
             assert config["max_seq_len"] == expected_seq_len
             if sub_job["job_type"] == "training":
                 ds_config = config["ds_config"]
@@ -237,10 +242,10 @@ def test_moe_rl_recipes_have_runnable_parallelism():
         ),
         "qwen38_flash_next.json": (
             "Qwen/Qwen3.8-Flash-Next",
-            8,
-            8,
-            8,
-            "sdpa",
+            16,
+            16,
+            16,
+            "qsa_flex",
         ),
     }
     optimizer_offload = {
@@ -266,21 +271,25 @@ def test_moe_rl_recipes_have_runnable_parallelism():
         assert sampling["job_type"] == "sampling"
         assert sampling["model_name"] == model_id
         assert sampling["dtype"] == "bfloat16"
-        assert sampling_config["max_seq_len"] == 4096
+        expected_seq_len = 32768 if filename == "qwen38_flash_next.json" else 4096
+        assert sampling_config["max_seq_len"] == expected_seq_len
         assert sampling_config["n_gpus"] == sampling_gpus
-        assert sampling_config["vllm_config"]["tensor_parallel_size"] == sampling_gpus
+        expected_tp = 8 if filename == "qwen38_flash_next.json" else sampling_gpus
+        assert sampling_config["vllm_config"]["tensor_parallel_size"] == expected_tp
         assert sampling_config["vllm_config"]["trust_remote_code"] is True
         assert training["job_type"] == "training"
         assert training["model_name"] == model_id
         assert training["dtype"] == "bfloat16"
         assert training_config["model_provider"] == "prime_rl"
         assert training_config["attn_implementation"] == attention
-        assert training_config["max_seq_len"] == 4096
+        assert training_config["max_seq_len"] == expected_seq_len
         assert training_config["n_gpus"] == training_gpus
         assert training_config["ep_size"] == ep_size
-        assert training_config.get("sp_size", 1) == 1
-        assert training_config["train_batch_size"] == training_gpus
-        assert ds_config["train_batch_size"] == training_gpus
+        expected_sp = 16 if filename == "qwen38_flash_next.json" else 1
+        expected_batch_size = 1 if filename == "qwen38_flash_next.json" else training_gpus
+        assert training_config.get("sp_size", 1) == expected_sp
+        assert training_config["train_batch_size"] == expected_batch_size
+        assert ds_config["train_batch_size"] == expected_batch_size
         assert ds_config["train_micro_batch_size_per_gpu"] == 1
         assert ds_config["gradient_accumulation_steps"] == 1
         if filename in optimizer_offload:
@@ -291,8 +300,16 @@ def test_moe_rl_recipes_have_runnable_parallelism():
             assert "offload_optimizer" not in ds_config["zero_optimization"]
 
         if filename == "qwen38_flash_next.json":
-            assert sampling["weight_format"] == "hf"
-            assert training["weight_format"] == "hf"
+            assert sampling["weight_format"] == "vllm"
+            assert training["weight_format"] == "vllm"
+            assert sampling_config["router_replay"]["enabled"] is True
+            assert training_config["router_replay"]["enabled"] is True
+            assert training_config["ac_config"] == {
+                "mode": "selective",
+                "freq": 1,
+                "targets": ["norm", "linear_attn", "routed_experts"],
+            }
+            assert training_config["mb_spec"]["max_tokens_per_mb"] == 2048
 
 
 @pytest.mark.parametrize(

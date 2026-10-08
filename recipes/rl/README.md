@@ -50,6 +50,11 @@ python -m recipes.rl.math_grpo.train \
 python -m recipes.rl.math_grpo.train \
   config=/path/to/config.json \
   job_config=configs/qwen3_30b_a3b.json
+
+# Qwen3.8-Flash-Next full-parameter, 32K context
+python -m recipes.rl.math_grpo.train \
+  config=/path/to/config.json \
+  job_config=configs/qwen38_flash_next.json
 ```
 
 `config=` is the Snowflake connection file. Adapt from
@@ -67,7 +72,8 @@ Other full-parameter job bodies are:
 - `configs/glm53_flash.json`
 - `configs/qwen38_flash_next.json`
 
-For `qwen38_flash_next.json`, also pass `weight_sync_format=hf`.
+`qwen38_flash_next.json` is the validated 16-training/16-sampling GPU
+configuration with EP16/SP16 QSA, router replay, and a 32K context.
 
 ## Customizability
 
