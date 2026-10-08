@@ -2,7 +2,7 @@
   "sub_job_configs": [
     {
       "job_type": "training",
-      "model_name": "zai-org/GLM-5.3-Flash-BF16",
+      "model_name": "zai-org/GLM-5.3-Flash",
       "dtype": "bfloat16",
       "seed": 42,
       "training_config": {

@@ -172,7 +172,8 @@ def test_moe_sft_recipes_have_runnable_parallelism():
             4,
             4,
         ),
-        "glm53_flash.json": ("zai-org/GLM-5.3-Flash-BF16", 16, 16),
+        "glm53_flash.json": ("zai-org/GLM-5.3-Flash", 16, 16),
+        "glm53_flash_bf16.json": ("zai-org/GLM-5.3-Flash-BF16", 16, 16),
         "qwen38_flash_next.json": ("Qwen/Qwen3.8-Flash-Next", 8, 8),
     }
     config_dir = REPO_ROOT / "recipes/sft/configs"
@@ -234,6 +235,13 @@ def test_moe_rl_recipes_have_runnable_parallelism():
             "flash_attention_3",
         ),
         "glm53_flash.json": (
+            "zai-org/GLM-5.3-Flash",
+            16,
+            16,
+            8,
+            "sdpa",
+        ),
+        "glm53_flash_bf16.json": (
             "zai-org/GLM-5.3-Flash-BF16",
             16,
             16,
@@ -252,6 +260,7 @@ def test_moe_rl_recipes_have_runnable_parallelism():
         "glm45_air.json",
         "minimax_m2.json",
         "glm53_flash.json",
+        "glm53_flash_bf16.json",
         "qwen38_flash_next.json",
     }
     config_dir = REPO_ROOT / "recipes/rl/configs"

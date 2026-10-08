@@ -155,7 +155,8 @@ length:
 - `minimax_m2.json`: MiniMax-M2-BF16, 16 GPUs, EP8, CPU optimizer offload
 - `trinity_mini.json`: Trinity-Mini, 4 GPUs, EP4
 - `nemotron3_nano_30b.json`: Nemotron-3-Nano-30B-A3B-BF16, 4 GPUs, EP4
-- `glm53_flash.json`: GLM-5.3-Flash-BF16, 16 GPUs, EP16, CPU optimizer offload
+- `glm53_flash.json`: GLM-5.3-Flash FP8 weights, 16 GPUs, EP16, CPU optimizer offload
+- `glm53_flash_bf16.json`: GLM-5.3-Flash-BF16, 16 GPUs, EP16, CPU optimizer offload
 - `qwen38_flash_next.json`: Qwen3.8-Flash-Next, 8 GPUs, EP8
 
 ```bash

@@ -17,6 +17,7 @@ models:
   - ModelCloud/MiniMax-M2-BF16
   - arcee-ai/Trinity-Mini
   - nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
+  - zai-org/GLM-5.3-Flash
   - zai-org/GLM-5.3-Flash-BF16
   - Qwen/Qwen3.8-Flash-Next
 datasets:

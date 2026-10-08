@@ -69,7 +69,8 @@ Other full-parameter job bodies are:
 - `configs/minimax_m2.json`
 - `configs/trinity_mini.json`
 - `configs/nemotron3_nano_30b.json`
-- `configs/glm53_flash.json`
+- `configs/glm53_flash.json` (FP8 weights)
+- `configs/glm53_flash_bf16.json`
 - `configs/qwen38_flash_next.json`
 
 `qwen38_flash_next.json` is the validated 16-training/16-sampling GPU
