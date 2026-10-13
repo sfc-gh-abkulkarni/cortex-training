@@ -798,7 +798,7 @@ def test_qwen36_lora_uses_prime_rl_attention_targets(
         for sub_job in request["sub_job_configs"]
         if sub_job["job_type"] == "training"
     )
-    assert training["model_provider"] == "prime_rl"
+    assert "model_provider" not in training
     assert training.get("sp_size", 1) == expected_sp
     assert {
         tuple(

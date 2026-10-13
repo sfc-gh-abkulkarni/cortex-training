@@ -123,8 +123,7 @@
             "dtype": "bfloat16",
             "seed": 42,
             "extra_training": {
-              "model_provider": "prime_rl",
-              "attn_implementation": "flash_attention_3",
+                            "attn_implementation": "flash_attention_3",
               "ac_config": {
                 "mode": "full",
                 "freq": 1
@@ -185,8 +184,7 @@
             "dtype": "bfloat16",
             "seed": 42,
             "extra_training": {
-              "model_provider": "prime_rl",
-              "attn_implementation": "flash_attention_3",
+                            "attn_implementation": "flash_attention_3",
               "attn_impl": "flash_attention_3",
               "ep_size": 4,
               "ac_config": {
@@ -239,8 +237,7 @@
             "dtype": "bfloat16",
             "seed": 42,
             "extra_training": {
-              "model_provider": "prime_rl",
-              "attn_implementation": "flash_attention_3",
+                            "attn_implementation": "flash_attention_3",
               "ac_config": {
                 "mode": "full",
                 "freq": 1
@@ -344,8 +341,7 @@
             "dtype": "bfloat16",
             "seed": 42,
             "extra_training": {
-              "model_provider": "prime_rl",
-              "attn_implementation": "flash_attention_3",
+                            "attn_implementation": "flash_attention_3",
               "attn_impl": "flash_attention_3",
               "ep_size": 4,
               "ac_config": {
