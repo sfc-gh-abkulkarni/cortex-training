@@ -72,7 +72,7 @@ Other full-parameter job bodies are:
 - `configs/trinity-mini-rl-full-128k.json`
 - `configs/nemotron3-nano-30b-rl-full-4k.json`
 - `configs/glm53-flash-rl-full-256k.json` (FP8 weights)
-- `configs/glm53-flash-bf16-rl-full-4k.json`
+- `configs/glm53-flash-bf16-rl-full-256k.json`
 - `configs/qwen38-flash-next-rl-full-256k.json`
 
 The training block of each renamed RL recipe matches its SFT recipe.
@@ -83,6 +83,9 @@ is 16 GPUs, SP16, EP8, `qsa_flex`, and a 256K context.
 training mesh as the SFT recipe, including the tiled MLP chunk of 1024.
 Its sampler stays at 8 GPUs and TP8 with a 256K context. The completed
 evidence is the training optimizer step; sampling was not probed.
+`glm53-flash-bf16-rl-full-256k.json` uses that same training mesh and sampler
+shape for `zai-org/GLM-5.3-Flash-BF16`. The BF16 checkpoint has not completed
+its own 256K step.
 
 ## Customizability
 

@@ -203,7 +203,14 @@ def test_moe_sft_recipes_have_runnable_parallelism():
             32,
             1,
         ),
-        "glm53-flash-bf16-sft-full-4k.json": ("zai-org/GLM-5.3-Flash-BF16", 16, 16, 4096, 1, 16),
+        "glm53-flash-bf16-sft-full-256k.json": (
+            "zai-org/GLM-5.3-Flash-BF16",
+            32,
+            16,
+            262144,
+            32,
+            1,
+        ),
         "qwen38-flash-next-sft-full-256k.json": (
             "Qwen/Qwen3.8-Flash-Next",
             16,
@@ -231,7 +238,10 @@ def test_moe_sft_recipes_have_runnable_parallelism():
         assert sub_job["model_name"] == model_id
         assert sub_job["dtype"] == "bfloat16"
         assert "model_provider" not in training
-        if filename == "glm53-flash-sft-full-256k.json":
+        if filename in {
+            "glm53-flash-sft-full-256k.json",
+            "glm53-flash-bf16-sft-full-256k.json",
+        }:
             assert training["prime_rl"] == {"ep_comm_backend": "uccl"}
             assert training["tiled_mlp_token_chunk_size"] == 1024
             assert training["ds_config"]["bf16"]["bf16_optimizer_states"] is True
@@ -313,15 +323,15 @@ def test_moe_rl_recipes_have_runnable_parallelism():
             32,
             1,
         ),
-        "glm53-flash-bf16-rl-full-4k.json": (
+        "glm53-flash-bf16-rl-full-256k.json": (
             "zai-org/GLM-5.3-Flash-BF16",
-            16,
+            32,
             16,
             8,
             "sparse_mla",
-            4096,
+            262144,
+            32,
             1,
-            16,
         ),
         "qwen38-flash-next-rl-full-256k.json": (
             "Qwen/Qwen3.8-Flash-Next",
@@ -364,7 +374,10 @@ def test_moe_rl_recipes_have_runnable_parallelism():
         assert training["model_name"] == model_id
         assert training["dtype"] == "bfloat16"
         assert "model_provider" not in training_config
-        if filename == "glm53-flash-rl-full-256k.json":
+        if filename in {
+            "glm53-flash-rl-full-256k.json",
+            "glm53-flash-bf16-rl-full-256k.json",
+        }:
             assert training_config["prime_rl"] == {"ep_comm_backend": "uccl"}
             assert training_config["tiled_mlp_token_chunk_size"] == 1024
             assert training_config["ds_config"]["bf16"]["bf16_optimizer_states"] is True
