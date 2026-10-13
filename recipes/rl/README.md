@@ -71,7 +71,7 @@ Other full-parameter job bodies are:
 - `configs/minimax-m2-rl-full-4k.json`
 - `configs/trinity-mini-rl-full-128k.json`
 - `configs/nemotron3-nano-30b-rl-full-4k.json`
-- `configs/glm53-flash-rl-full-4k.json` (FP8 weights)
+- `configs/glm53-flash-rl-full-256k.json` (FP8 weights)
 - `configs/glm53-flash-bf16-rl-full-4k.json`
 - `configs/qwen38-flash-next-rl-full-256k.json`
 
@@ -79,6 +79,10 @@ The training block of each renamed RL recipe matches its SFT recipe.
 `qwen38-flash-next-rl-full-256k.json` keeps the 16-GPU
 sampler at TP8, `weight_format: vllm`, and router replay. Its training mesh
 is 16 GPUs, SP16, EP8, `qsa_flex`, and a 256K context.
+`glm53-flash-rl-full-256k.json` uses the same 32-GPU, SP32, EP16, UCCL
+training mesh as the SFT recipe, including the tiled MLP chunk of 1024.
+Its sampler stays at 8 GPUs and TP8 with a 256K context. The completed
+evidence is the training optimizer step; sampling was not probed.
 
 ## Customizability
 

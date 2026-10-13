@@ -148,8 +148,9 @@ Full-parameter recipes. Renamed files use 256K, or the model's position
 limit when that limit is lower. The filename records sequence parallel,
 expert parallel, GPU count, and that length. The matching RL training block
 uses the same mesh. These recipes omit `model_provider`; expert parallelism
-selects the MoE runtime. Nemotron-3-Nano, MiniMax-M2, and both GLM-5.3 Flash
-recipes are still the 4K bodies.
+selects the MoE runtime. Nemotron-3-Nano, MiniMax-M2, and GLM-5.3-Flash-BF16
+are still the 4K bodies. GLM-5.3-Flash FP8 sets `ep_comm_backend` to `uccl`
+because cross-node EP16 does not complete with DeepEP.
 
 - `glm45-air-sft-full-128k.json`: GLM-4.5-Air, 8 GPUs, SP8, EP4, 128K
 - `trinity-mini-sft-full-128k.json`: Trinity-Mini, 4 GPUs, SP1, EP4, 128K
@@ -157,7 +158,7 @@ recipes are still the 4K bodies.
 - `qwen3-30b-a3b-sft-full-40k.json`: Qwen3-30B-A3B, 4 GPUs, SP1, EP4, 40K (model maximum)
 - `nemotron3-nano-30b-sft-full-4k.json`: Nemotron-3-Nano-30B-A3B-BF16, 4 GPUs, EP4, 4K
 - `minimax-m2-sft-full-4k.json`: MiniMax-M2-BF16, 16 GPUs, EP8, 4K, CPU optimizer offload
-- `glm53-flash-sft-full-4k.json`: GLM-5.3-Flash FP8 weights, 16 GPUs, EP16, 4K, CPU optimizer offload
+- `glm53-flash-sft-full-256k.json`: GLM-5.3-Flash FP8 weights, 32 GPUs, SP32, EP16, 256K, UCCL, tiled MLP chunk 1024. One optimizer step completed on H200 with about 3 GiB of device headroom.
 - `glm53-flash-bf16-sft-full-4k.json`: GLM-5.3-Flash-BF16, 16 GPUs, EP16, 4K, CPU optimizer offload
 
 ```bash
