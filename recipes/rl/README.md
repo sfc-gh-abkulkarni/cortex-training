@@ -53,10 +53,10 @@ python -m recipes.rl.math_grpo.train \
   config=/path/to/config.json \
   job_config=configs/qwen3_30b_a3b.json
 
-# Qwen3.8-Flash-Next full-parameter, 32K context
+# Qwen3.8-Flash-Next full-parameter, 256K context
 python -m recipes.rl.math_grpo.train \
   config=/path/to/config.json \
-  job_config=configs/qwen38_flash_next.json
+  job_config=configs/qwen3.8-flash-next-train-rl-sp16-ep8-16gpus-256k.json
 ```
 
 `config=` is the Snowflake connection file. Adapt from
@@ -67,16 +67,18 @@ The default job body is `configs/qwen3_8b_lora.json`. The default run will be fi
 Other full-parameter job bodies are:
 
 - `configs/qwen3_30b_a3b.json`
-- `configs/glm45_air.json`
+- `configs/glm45-air-train-rl-sp8-ep4-8gpus-128k.json`
 - `configs/minimax_m2.json`
-- `configs/trinity_mini.json`
+- `configs/trinity-mini-train-rl-sp1-ep4-4gpus-128k.json`
 - `configs/nemotron3_nano_30b.json`
 - `configs/glm53_flash.json` (FP8 weights)
 - `configs/glm53_flash_bf16.json`
-- `configs/qwen38_flash_next.json`
+- `configs/qwen3.8-flash-next-train-rl-sp16-ep8-16gpus-256k.json`
 
-`qwen38_flash_next.json` is the validated 16-training/16-sampling GPU
-configuration with EP16/SP16 QSA, router replay, and a 32K context.
+The training block of each renamed RL recipe matches its SFT recipe.
+`qwen3.8-flash-next-train-rl-sp16-ep8-16gpus-256k.json` keeps the 16-GPU
+sampler at TP8, `weight_format: vllm`, and router replay. Its training mesh
+is 16 GPUs, SP16, EP8, `qsa_flex`, and a 256K context.
 
 ## Customizability
 

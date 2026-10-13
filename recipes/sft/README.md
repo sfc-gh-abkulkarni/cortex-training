@@ -145,22 +145,25 @@ to run at the model's 262K context limit.
 
 ### MoE models
 
-Full-parameter recipes for the other MoE families. Each uses a 4K sequence
-length:
+Full-parameter recipes. Renamed files use 256K, or the model's position
+limit when that limit is lower. The filename records sequence parallel,
+expert parallel, GPU count, and that length. The matching RL training block
+uses the same mesh. Qwen3-30B-A3B, Nemotron-3-Nano, MiniMax-M2, and both
+GLM-5.3 Flash recipes are still the 4K bodies.
 
-- `qwen3_30b_a3b.json`: Qwen3-30B-A3B, 4 GPUs, EP4
-- `glm45_air.json`: GLM-4.5-Air, 4 GPUs, EP4, CPU optimizer offload
-- `minimax_m2.json`: MiniMax-M2-BF16, 16 GPUs, EP8, CPU optimizer offload
-- `trinity_mini.json`: Trinity-Mini, 4 GPUs, EP4
-- `nemotron3_nano_30b.json`: Nemotron-3-Nano-30B-A3B-BF16, 4 GPUs, EP4
-- `glm53_flash.json`: GLM-5.3-Flash FP8 weights, 16 GPUs, EP16, CPU optimizer offload
-- `glm53_flash_bf16.json`: GLM-5.3-Flash-BF16, 16 GPUs, EP16, CPU optimizer offload
-- `qwen38_flash_next.json`: Qwen3.8-Flash-Next, 8 GPUs, EP8
+- `glm45-air-train-sft-sp8-ep4-8gpus-128k.json`: GLM-4.5-Air, 8 GPUs, SP8, EP4, 128K
+- `trinity-mini-train-sft-sp1-ep4-4gpus-128k.json`: Trinity-Mini, 4 GPUs, SP1, EP4, 128K
+- `qwen3.8-flash-next-train-sft-sp16-ep8-16gpus-256k.json`: Qwen3.8-Flash-Next, 16 GPUs, SP16, EP8, 256K, `qsa_flex`
+- `qwen3_30b_a3b.json`: Qwen3-30B-A3B, 4 GPUs, EP4, 4K
+- `nemotron3_nano_30b.json`: Nemotron-3-Nano-30B-A3B-BF16, 4 GPUs, EP4, 4K
+- `minimax_m2.json`: MiniMax-M2-BF16, 16 GPUs, EP8, 4K, CPU optimizer offload
+- `glm53_flash.json`: GLM-5.3-Flash FP8 weights, 16 GPUs, EP16, 4K, CPU optimizer offload
+- `glm53_flash_bf16.json`: GLM-5.3-Flash-BF16, 16 GPUs, EP16, 4K, CPU optimizer offload
 
 ```bash
 python -m recipes.sft.conversational.train \
   config=/path/to/config.json \
-  job_config=configs/qwen3_30b_a3b.json
+  job_config=configs/qwen3.8-flash-next-train-sft-sp16-ep8-16gpus-256k.json
 ```
 
 For dense long-context profiles, an integer
