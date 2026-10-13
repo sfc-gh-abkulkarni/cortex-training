@@ -111,8 +111,8 @@ def test_shipped_qwen_recipes_use_model_limits_and_long_context_sp():
         "Qwen/Qwen3.8-27B": 65536,
         "Qwen/Qwen3.6-35B-A3B": 262144,
     }
-    # These MoE recipes ship at 4K. The parallelism tests cover them; this
-    # test stays on the recipes that use the model context limit.
+    # These recipes are covered by the parallelism tests. Qwen3-30B-A3B is
+    # capped by its checkpoint at 40,960 tokens.
     shorter_context_models = {
         "Qwen/Qwen3-30B-A3B",
         "Qwen/Qwen3.8-Flash-Next",
@@ -162,7 +162,14 @@ def test_shipped_qwen_recipes_use_model_limits_and_long_context_sp():
 def test_moe_sft_recipes_have_runnable_parallelism():
     # model, n_gpus, ep_size, max_seq_len, sp_size, train_batch_size
     expected = {
-        "qwen3_30b_a3b.json": ("Qwen/Qwen3-30B-A3B", 4, 4, 4096, 1, 4),
+        "qwen3-30b-a3b-train-sft-sp1-ep4-4gpus-40k.json": (
+            "Qwen/Qwen3-30B-A3B",
+            4,
+            4,
+            40960,
+            1,
+            4,
+        ),
         "glm45-air-train-sft-sp8-ep4-8gpus-128k.json": (
             "zai-org/GLM-4.5-Air",
             8,
@@ -216,7 +223,7 @@ def test_moe_sft_recipes_have_runnable_parallelism():
         assert sub_job["job_type"] == "training"
         assert sub_job["model_name"] == model_id
         assert sub_job["dtype"] == "bfloat16"
-        assert training["model_provider"] == "prime_rl"
+        assert "model_provider" not in training
         assert "prime_rl" not in training
         assert training["max_seq_len"] == seq_len
         assert training["n_gpus"] == n_gpus
@@ -233,13 +240,13 @@ def test_moe_sft_recipes_have_runnable_parallelism():
 def test_moe_rl_recipes_have_runnable_parallelism():
     # model, train gpus, ep, sample gpus, attention, seq, sp, batch
     expected = {
-        "qwen3_30b_a3b.json": (
+        "qwen3-30b-a3b-train-rl-sp1-ep4-4gpus-40k.json": (
             "Qwen/Qwen3-30B-A3B",
             4,
             4,
             4,
             "flash_attention_3",
-            4096,
+            40960,
             1,
             4,
         ),
@@ -343,7 +350,7 @@ def test_moe_rl_recipes_have_runnable_parallelism():
         assert training["job_type"] == "training"
         assert training["model_name"] == model_id
         assert training["dtype"] == "bfloat16"
-        assert training_config["model_provider"] == "prime_rl"
+        assert "model_provider" not in training_config
         assert "prime_rl" not in training_config
         assert training_config["attn_implementation"] == attention
         assert training_config["max_seq_len"] == seq_len
@@ -354,7 +361,10 @@ def test_moe_rl_recipes_have_runnable_parallelism():
         assert ds_config["train_batch_size"] == batch_size
         assert ds_config["train_micro_batch_size_per_gpu"] == 1
         assert ds_config["gradient_accumulation_steps"] == 1
-        if filename in {"qwen3_30b_a3b.json", "nemotron3_nano_30b.json"}:
+        if filename in {
+            "qwen3-30b-a3b-train-rl-sp1-ep4-4gpus-40k.json",
+            "nemotron3_nano_30b.json",
+        }:
             assert "offload_optimizer" not in ds_config["zero_optimization"]
         else:
             assert (

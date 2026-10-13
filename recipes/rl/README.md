@@ -51,7 +51,7 @@ python -m recipes.rl.math_grpo.train \
 # Qwen3-30B-A3B full-parameter
 python -m recipes.rl.math_grpo.train \
   config=/path/to/config.json \
-  job_config=configs/qwen3_30b_a3b.json
+  job_config=configs/qwen3-30b-a3b-train-rl-sp1-ep4-4gpus-40k.json
 
 # Qwen3.8-Flash-Next full-parameter, 256K context
 python -m recipes.rl.math_grpo.train \
@@ -66,7 +66,7 @@ The default job body is `configs/qwen3_8b_lora.json`. The default run will be fi
 
 Other full-parameter job bodies are:
 
-- `configs/qwen3_30b_a3b.json`
+- `configs/qwen3-30b-a3b-train-rl-sp1-ep4-4gpus-40k.json`
 - `configs/glm45-air-train-rl-sp8-ep4-8gpus-128k.json`
 - `configs/minimax_m2.json`
 - `configs/trinity-mini-train-rl-sp1-ep4-4gpus-128k.json`

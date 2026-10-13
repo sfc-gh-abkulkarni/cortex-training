@@ -148,13 +148,14 @@ to run at the model's 262K context limit.
 Full-parameter recipes. Renamed files use 256K, or the model's position
 limit when that limit is lower. The filename records sequence parallel,
 expert parallel, GPU count, and that length. The matching RL training block
-uses the same mesh. Qwen3-30B-A3B, Nemotron-3-Nano, MiniMax-M2, and both
-GLM-5.3 Flash recipes are still the 4K bodies.
+uses the same mesh. These recipes omit `model_provider`; expert parallelism
+selects the MoE runtime. Nemotron-3-Nano, MiniMax-M2, and both GLM-5.3 Flash
+recipes are still the 4K bodies.
 
 - `glm45-air-train-sft-sp8-ep4-8gpus-128k.json`: GLM-4.5-Air, 8 GPUs, SP8, EP4, 128K
 - `trinity-mini-train-sft-sp1-ep4-4gpus-128k.json`: Trinity-Mini, 4 GPUs, SP1, EP4, 128K
 - `qwen3.8-flash-next-train-sft-sp16-ep8-16gpus-256k.json`: Qwen3.8-Flash-Next, 16 GPUs, SP16, EP8, 256K, `qsa_flex`
-- `qwen3_30b_a3b.json`: Qwen3-30B-A3B, 4 GPUs, EP4, 4K
+- `qwen3-30b-a3b-train-sft-sp1-ep4-4gpus-40k.json`: Qwen3-30B-A3B, 4 GPUs, SP1, EP4, 40K (model maximum)
 - `nemotron3_nano_30b.json`: Nemotron-3-Nano-30B-A3B-BF16, 4 GPUs, EP4, 4K
 - `minimax_m2.json`: MiniMax-M2-BF16, 16 GPUs, EP8, 4K, CPU optimizer offload
 - `glm53_flash.json`: GLM-5.3-Flash FP8 weights, 16 GPUs, EP16, 4K, CPU optimizer offload
