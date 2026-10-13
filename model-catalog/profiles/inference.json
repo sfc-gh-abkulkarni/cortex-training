@@ -7,8 +7,8 @@
       "summary": "Eight-GPU H200 inference starting point with single-GPU tensor parallelism for supported Qwen models.",
       "recipePath": "recipes/inference/serve.py",
       "evidencePaths": [
-        "recipes/inference/configs/qwen3_8b_full.json",
-        "recipes/inference/configs/qwen36_35b_a3b_full.json"
+        "recipes/inference/configs/qwen3-8b-inference-full.json",
+        "recipes/inference/configs/qwen36-35b-a3b-inference-full.json"
       ],
       "subJobs": [
         {

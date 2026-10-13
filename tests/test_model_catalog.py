@@ -118,7 +118,7 @@ def test_shipped_qwen_recipes_use_model_limits_and_long_context_sp():
         "Qwen/Qwen3.8-Flash-Next",
     }
     shorter_context_configs = {
-        REPO_ROOT / "recipes/rl/configs/qwen38_27b_full.json": 32768,
+        REPO_ROOT / "recipes/rl/configs/qwen38-27b-rl-full-32k.json": 32768,
     }
     config_paths = []
     for path in [
@@ -162,7 +162,7 @@ def test_shipped_qwen_recipes_use_model_limits_and_long_context_sp():
 def test_moe_sft_recipes_have_runnable_parallelism():
     # model, n_gpus, ep_size, max_seq_len, sp_size, train_batch_size
     expected = {
-        "qwen3-30b-a3b-train-sft-sp1-ep4-4gpus-40k.json": (
+        "qwen3-30b-a3b-sft-full-40k.json": (
             "Qwen/Qwen3-30B-A3B",
             4,
             4,
@@ -170,7 +170,7 @@ def test_moe_sft_recipes_have_runnable_parallelism():
             1,
             4,
         ),
-        "glm45-air-train-sft-sp8-ep4-8gpus-128k.json": (
+        "glm45-air-sft-full-128k.json": (
             "zai-org/GLM-4.5-Air",
             8,
             4,
@@ -178,8 +178,8 @@ def test_moe_sft_recipes_have_runnable_parallelism():
             8,
             1,
         ),
-        "minimax_m2.json": ("ModelCloud/MiniMax-M2-BF16", 16, 8, 4096, 1, 16),
-        "trinity-mini-train-sft-sp1-ep4-4gpus-128k.json": (
+        "minimax-m2-sft-full-4k.json": ("ModelCloud/MiniMax-M2-BF16", 16, 8, 4096, 1, 16),
+        "trinity-mini-sft-full-128k.json": (
             "arcee-ai/Trinity-Mini",
             4,
             4,
@@ -187,7 +187,7 @@ def test_moe_sft_recipes_have_runnable_parallelism():
             1,
             4,
         ),
-        "nemotron3_nano_30b.json": (
+        "nemotron3-nano-30b-sft-full-4k.json": (
             "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16",
             4,
             4,
@@ -195,9 +195,9 @@ def test_moe_sft_recipes_have_runnable_parallelism():
             1,
             4,
         ),
-        "glm53_flash.json": ("zai-org/GLM-5.3-Flash", 16, 16, 4096, 1, 16),
-        "glm53_flash_bf16.json": ("zai-org/GLM-5.3-Flash-BF16", 16, 16, 4096, 1, 16),
-        "qwen3.8-flash-next-train-sft-sp16-ep8-16gpus-256k.json": (
+        "glm53-flash-sft-full-4k.json": ("zai-org/GLM-5.3-Flash", 16, 16, 4096, 1, 16),
+        "glm53-flash-bf16-sft-full-4k.json": ("zai-org/GLM-5.3-Flash-BF16", 16, 16, 4096, 1, 16),
+        "qwen38-flash-next-sft-full-256k.json": (
             "Qwen/Qwen3.8-Flash-Next",
             16,
             8,
@@ -233,14 +233,14 @@ def test_moe_sft_recipes_have_runnable_parallelism():
         assert ds_config["train_batch_size"] == batch_size
         assert ds_config["train_micro_batch_size_per_gpu"] == 1
         assert ds_config["gradient_accumulation_steps"] == 1
-        if filename.startswith("qwen3.8-flash-next"):
+        if filename.startswith("qwen38-flash-next"):
             assert training["attn_implementation"] == "qsa_flex"
 
 
 def test_moe_rl_recipes_have_runnable_parallelism():
     # model, train gpus, ep, sample gpus, attention, seq, sp, batch
     expected = {
-        "qwen3-30b-a3b-train-rl-sp1-ep4-4gpus-40k.json": (
+        "qwen3-30b-a3b-rl-full-40k.json": (
             "Qwen/Qwen3-30B-A3B",
             4,
             4,
@@ -250,7 +250,7 @@ def test_moe_rl_recipes_have_runnable_parallelism():
             1,
             4,
         ),
-        "glm45-air-train-rl-sp8-ep4-8gpus-128k.json": (
+        "glm45-air-rl-full-128k.json": (
             "zai-org/GLM-4.5-Air",
             8,
             4,
@@ -260,7 +260,7 @@ def test_moe_rl_recipes_have_runnable_parallelism():
             8,
             1,
         ),
-        "minimax_m2.json": (
+        "minimax-m2-rl-full-4k.json": (
             "ModelCloud/MiniMax-M2-BF16",
             16,
             8,
@@ -270,7 +270,7 @@ def test_moe_rl_recipes_have_runnable_parallelism():
             1,
             16,
         ),
-        "trinity-mini-train-rl-sp1-ep4-4gpus-128k.json": (
+        "trinity-mini-rl-full-128k.json": (
             "arcee-ai/Trinity-Mini",
             4,
             4,
@@ -280,7 +280,7 @@ def test_moe_rl_recipes_have_runnable_parallelism():
             1,
             4,
         ),
-        "nemotron3_nano_30b.json": (
+        "nemotron3-nano-30b-rl-full-4k.json": (
             "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16",
             4,
             4,
@@ -290,7 +290,7 @@ def test_moe_rl_recipes_have_runnable_parallelism():
             1,
             4,
         ),
-        "glm53_flash.json": (
+        "glm53-flash-rl-full-4k.json": (
             "zai-org/GLM-5.3-Flash",
             16,
             16,
@@ -300,7 +300,7 @@ def test_moe_rl_recipes_have_runnable_parallelism():
             1,
             16,
         ),
-        "glm53_flash_bf16.json": (
+        "glm53-flash-bf16-rl-full-4k.json": (
             "zai-org/GLM-5.3-Flash-BF16",
             16,
             16,
@@ -310,7 +310,7 @@ def test_moe_rl_recipes_have_runnable_parallelism():
             1,
             16,
         ),
-        "qwen3.8-flash-next-train-rl-sp16-ep8-16gpus-256k.json": (
+        "qwen38-flash-next-rl-full-256k.json": (
             "Qwen/Qwen3.8-Flash-Next",
             16,
             8,
@@ -344,7 +344,7 @@ def test_moe_rl_recipes_have_runnable_parallelism():
         assert sampling["dtype"] == "bfloat16"
         assert sampling_config["max_seq_len"] == seq_len
         assert sampling_config["n_gpus"] == sampling_gpus
-        expected_tp = 8 if filename.startswith("qwen3.8-flash-next") else sampling_gpus
+        expected_tp = 8 if filename.startswith("qwen38-flash-next") else sampling_gpus
         assert sampling_config["vllm_config"]["tensor_parallel_size"] == expected_tp
         assert sampling_config["vllm_config"]["trust_remote_code"] is True
         assert training["job_type"] == "training"
@@ -362,8 +362,8 @@ def test_moe_rl_recipes_have_runnable_parallelism():
         assert ds_config["train_micro_batch_size_per_gpu"] == 1
         assert ds_config["gradient_accumulation_steps"] == 1
         if filename in {
-            "qwen3-30b-a3b-train-rl-sp1-ep4-4gpus-40k.json",
-            "nemotron3_nano_30b.json",
+            "qwen3-30b-a3b-rl-full-40k.json",
+            "nemotron3-nano-30b-rl-full-4k.json",
         }:
             assert "offload_optimizer" not in ds_config["zero_optimization"]
         else:
@@ -371,8 +371,8 @@ def test_moe_rl_recipes_have_runnable_parallelism():
                 ds_config["zero_optimization"]["offload_optimizer"]["device"] == "cpu"
             )
 
-        sft_name = filename.replace("-train-rl-", "-train-sft-")
-        if sft_name != filename:
+        sft_name = filename.replace("-rl-", "-sft-")
+        if sft_name != filename and (sft_dir / sft_name).exists():
             sft_training = json.loads((sft_dir / sft_name).read_text())["sub_job_configs"][0]
             assert sft_training["training_config"] == {
                 key: value
@@ -380,7 +380,7 @@ def test_moe_rl_recipes_have_runnable_parallelism():
                 if key != "router_replay"
             }
 
-        if filename.startswith("qwen3.8-flash-next"):
+        if filename.startswith("qwen38-flash-next"):
             assert sampling["weight_format"] == "vllm"
             assert training["weight_format"] == "vllm"
             assert sampling_config["router_replay"]["enabled"] is True

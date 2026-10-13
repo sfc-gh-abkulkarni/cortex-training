@@ -54,7 +54,7 @@ python -m recipes.sft.conversational.train \
 # Train split has 7473 rows. With the 8B configs (batch 8) one epoch is 934 steps.
 python -m recipes.sft.conversational.train \
   config=/path/to/config.json \
-  job_config=configs/qwen3_8b_lora.json \
+  job_config=configs/qwen3-8b-sft-lora-32k.json \
   dataset=openai/gsm8k \
   dataset_split=train \
   max_steps=934
@@ -151,19 +151,19 @@ uses the same mesh. These recipes omit `model_provider`; expert parallelism
 selects the MoE runtime. Nemotron-3-Nano, MiniMax-M2, and both GLM-5.3 Flash
 recipes are still the 4K bodies.
 
-- `glm45-air-train-sft-sp8-ep4-8gpus-128k.json`: GLM-4.5-Air, 8 GPUs, SP8, EP4, 128K
-- `trinity-mini-train-sft-sp1-ep4-4gpus-128k.json`: Trinity-Mini, 4 GPUs, SP1, EP4, 128K
-- `qwen3.8-flash-next-train-sft-sp16-ep8-16gpus-256k.json`: Qwen3.8-Flash-Next, 16 GPUs, SP16, EP8, 256K, `qsa_flex`
-- `qwen3-30b-a3b-train-sft-sp1-ep4-4gpus-40k.json`: Qwen3-30B-A3B, 4 GPUs, SP1, EP4, 40K (model maximum)
-- `nemotron3_nano_30b.json`: Nemotron-3-Nano-30B-A3B-BF16, 4 GPUs, EP4, 4K
-- `minimax_m2.json`: MiniMax-M2-BF16, 16 GPUs, EP8, 4K, CPU optimizer offload
-- `glm53_flash.json`: GLM-5.3-Flash FP8 weights, 16 GPUs, EP16, 4K, CPU optimizer offload
-- `glm53_flash_bf16.json`: GLM-5.3-Flash-BF16, 16 GPUs, EP16, 4K, CPU optimizer offload
+- `glm45-air-sft-full-128k.json`: GLM-4.5-Air, 8 GPUs, SP8, EP4, 128K
+- `trinity-mini-sft-full-128k.json`: Trinity-Mini, 4 GPUs, SP1, EP4, 128K
+- `qwen38-flash-next-sft-full-256k.json`: Qwen3.8-Flash-Next, 16 GPUs, SP16, EP8, 256K, `qsa_flex`
+- `qwen3-30b-a3b-sft-full-40k.json`: Qwen3-30B-A3B, 4 GPUs, SP1, EP4, 40K (model maximum)
+- `nemotron3-nano-30b-sft-full-4k.json`: Nemotron-3-Nano-30B-A3B-BF16, 4 GPUs, EP4, 4K
+- `minimax-m2-sft-full-4k.json`: MiniMax-M2-BF16, 16 GPUs, EP8, 4K, CPU optimizer offload
+- `glm53-flash-sft-full-4k.json`: GLM-5.3-Flash FP8 weights, 16 GPUs, EP16, 4K, CPU optimizer offload
+- `glm53-flash-bf16-sft-full-4k.json`: GLM-5.3-Flash-BF16, 16 GPUs, EP16, 4K, CPU optimizer offload
 
 ```bash
 python -m recipes.sft.conversational.train \
   config=/path/to/config.json \
-  job_config=configs/qwen3.8-flash-next-train-sft-sp16-ep8-16gpus-256k.json
+  job_config=configs/qwen38-flash-next-sft-full-256k.json
 ```
 
 For dense long-context profiles, an integer
@@ -187,34 +187,34 @@ python -m recipes.sft.conversational.train \
 # Qwen3-8B LoRA
 python -m recipes.sft.conversational.train \
   config=/path/to/config.json \
-  job_config=configs/qwen3_8b_lora.json
+  job_config=configs/qwen3-8b-sft-lora-32k.json
 
 # Qwen3.5-9B LoRA / full
 python -m recipes.sft.conversational.train \
   config=/path/to/config.json \
-  job_config=configs/qwen35_9b_lora.json
+  job_config=configs/qwen35-9b-sft-lora-64k.json
 
 python -m recipes.sft.conversational.train \
   config=/path/to/config.json \
-  job_config=configs/qwen35_9b_full.json
+  job_config=configs/qwen35-9b-sft-full-64k.json
 
 # Qwen3.8-27B LoRA / full
 python -m recipes.sft.conversational.train \
   config=/path/to/config.json \
-  job_config=configs/qwen38_27b_lora.json
+  job_config=configs/qwen38-27b-sft-lora-64k.json
 
 python -m recipes.sft.conversational.train \
   config=/path/to/config.json \
-  job_config=configs/qwen38_27b_full.json
+  job_config=configs/qwen38-27b-sft-full-64k.json
 
 # Qwen3.6-35B-A3B LoRA / full
 python -m recipes.sft.conversational.train \
   config=/path/to/config.json \
-  job_config=configs/qwen36_35b_a3b_lora.json
+  job_config=configs/qwen36-35b-a3b-sft-lora-256k.json
 
 python -m recipes.sft.conversational.train \
   config=/path/to/config.json \
-  job_config=configs/qwen36_35b_a3b_full.json
+  job_config=configs/qwen36-35b-a3b-sft-full-256k.json
 ```
 
 ## Logs and Expected Results
@@ -264,7 +264,7 @@ on contest math, run MATH-500 against the same checkpoint (harder than GSM8K):
 ```bash
 python -m recipes.inference.evaluate \
   config=/path/to/config.json \
-  job_config=configs/qwen3_8b_lora.json \
+  job_config=configs/qwen3-8b-sft-lora-32k.json \
   source_job_id=TRAINING_JOB_ID \
   checkpoint_id=CHECKPOINT_ID \
   task=gsm8k \
@@ -278,7 +278,7 @@ After identity SFT, score the percent of completions that contain
 ```bash
 python -m recipes.inference.evaluate \
   config=/path/to/config.json \
-  job_config=configs/qwen3_8b_lora.json \
+  job_config=configs/qwen3-8b-sft-lora-32k.json \
   source_job_id=TRAINING_JOB_ID \
   checkpoint_id=CHECKPOINT_ID \
   task=identity \
