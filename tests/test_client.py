@@ -29,17 +29,23 @@ Two suites:
 from __future__ import annotations
 
 import base64
+import contextlib
 import gzip
 import importlib
 import json
 import logging
 import sys
+from datetime import date
+from datetime import datetime
+from datetime import timedelta
+from datetime import timezone
 from pathlib import Path
 from pathlib import PurePosixPath
 from types import SimpleNamespace
 from urllib.parse import unquote
 from urllib.parse import urlparse
 from unittest.mock import MagicMock
+from unittest.mock import patch
 
 import pytest
 import torch
@@ -775,6 +781,10 @@ class TestClientConstruction:
     def test_prefix_url(self):
         c = CortexTrainingClient(base_url="http://x.test", database="DB", schema="SCH")
         assert c._prefix == "http://x.test/api/v2/databases/DB/schemas/SCH/cortex-training"
+
+    def test_prefix_url_leaves_dollar_in_plain_names_bare(self):
+        c = CortexTrainingClient(base_url="http://x.test", database="MY$DB", schema="S$1")
+        assert c._prefix == "http://x.test/api/v2/databases/MY$DB/schemas/S$1/cortex-training"
 
     def test_from_pat_sets_headers_and_verify(self):
         c = CortexTrainingClient.from_pat(
@@ -1932,6 +1942,382 @@ class TestReadAndControl:
         }
 
 
+# ─── CortexTrainingClient — account-level job listing ────────────────────────
+
+ACCOUNT_ROUTE = "http://test.local/api/v2/cortex-training"
+
+
+def _resolve_identifier(segment: str) -> str:
+    """Resolve a URL path segment the way the server resolves an identifier."""
+    identifier = unquote(segment)
+    if identifier.startswith('"'):
+        return identifier[1:-1].replace('""', '"')
+    return identifier.upper()
+
+
+class TestIterJobs:
+    def test_gets_the_account_route_not_the_schema(self):
+        c = _make_client(get_json={"jobs": [{"job_id": "a"}]})
+
+        assert list(c.iter_jobs()) == [{"job_id": "a"}]
+
+        c._session.get.assert_called_once_with(ACCOUNT_ROUTE, params={"limit": 100})
+
+    @pytest.mark.parametrize("page_size", [0, 1001])
+    def test_refuses_a_page_size_the_server_would_reject(self, page_size):
+        c = _make_client(get_json={"jobs": []})
+
+        with pytest.raises(ValueError, match="page_size must be between 1 and 1000"):
+            next(c.iter_jobs(page_size=page_size))
+
+        c._session.get.assert_not_called()
+
+    @pytest.mark.parametrize("page_size", [1, 1000])
+    def test_accepts_the_page_size_bounds(self, page_size):
+        c = _make_client(get_json={"jobs": []})
+
+        assert list(c.iter_jobs(page_size=page_size)) == []
+
+        c._session.get.assert_called_once_with(
+            ACCOUNT_ROUTE, params={"limit": page_size}
+        )
+
+    def test_sends_every_filter(self):
+        c = _make_client(get_json={"jobs": []})
+
+        list(
+            c.iter_jobs(
+                database="ML",
+                schema='"Exp 1"',
+                status=["running", "FAILED"],
+                submitted_by="jdoe",
+                created_after=date(2026, 10, 1),
+                created_before=datetime(
+                    2026, 10, 2, 9, 30, tzinfo=timezone(timedelta(hours=2))
+                ),
+                page_size=50,
+            )
+        )
+
+        c._session.get.assert_called_once_with(
+            ACCOUNT_ROUTE,
+            params={
+                "database": "ML",
+                "schema": '"Exp 1"',
+                "status": "running,FAILED",
+                "submitted_by": "jdoe",
+                "created_after": "2026-10-01",
+                "created_before": "2026-10-02T07:30:00Z",
+                "limit": 50,
+            },
+        )
+
+    def test_refuses_a_schema_without_a_database(self):
+        c = _make_client(get_json={"jobs": []})
+
+        with pytest.raises(ValueError, match="needs database=... with it"):
+            c.iter_jobs(schema="EXP")
+
+        c._session.get.assert_not_called()
+
+    def test_checks_arguments_before_the_first_page_is_iterated(self):
+        c = _make_client(get_json={"jobs": []})
+
+        # Not next(...): the call itself refuses, so nothing is left to iterate.
+        with pytest.raises(ValueError, match="page_size must be between 1 and 1000"):
+            c.iter_jobs(page_size=0)
+        with pytest.raises(ValueError, match="needs database"):
+            c.iter_jobs(schema="EXP")
+
+        c._session.get.assert_not_called()
+
+    def test_ignores_a_count_the_server_no_longer_returns(self):
+        c = _make_client(
+            get_json={"jobs": [{"job_id": "a"}], "unknown_status_count": 3}
+        )
+
+        assert list(c.iter_jobs(status="running")) == [{"job_id": "a"}]
+
+    @pytest.mark.parametrize(
+        ("value", "wire"),
+        [
+            (date(2026, 10, 1), "2026-10-01"),
+            (
+                datetime(2026, 10, 1, 1, 0, tzinfo=timezone(timedelta(hours=-7))),
+                "2026-10-01T08:00:00Z",
+            ),
+            (datetime(2026, 10, 1, 8, 0, 0, 250000), "2026-10-01T08:00:00.250000Z"),
+            ("2026-10-01T00:00:00+02:00", "2026-10-01T00:00:00+02:00"),
+        ],
+    )
+    def test_created_after_is_sent_in_utc_or_as_given(self, value, wire):
+        c = _make_client(get_json={"jobs": []})
+
+        list(c.iter_jobs(status="active", created_after=value))
+
+        assert c._session.get.call_args.kwargs["params"] == {
+            "status": "active",
+            "created_after": wire,
+            "limit": 100,
+        }
+
+    def test_follows_next_page_token_with_the_same_filters(self):
+        c = _make_client()
+        c._session.get.side_effect = [
+            _make_response(
+                {"jobs": [{"job_id": "c"}, {"job_id": "b"}], "next_page_token": "t1"}
+            ),
+            # A page may be empty and still carry a token.
+            _make_response({"jobs": [], "next_page_token": "t2"}),
+            _make_response({"jobs": [{"job_id": "a"}], "next_page_token": None}),
+        ]
+
+        jobs = list(c.iter_jobs(status="failed", page_size=2))
+
+        assert [job["job_id"] for job in jobs] == ["c", "b", "a"]
+        calls = c._session.get.call_args_list
+        assert [call.args for call in calls] == [(ACCOUNT_ROUTE,)] * 3
+        assert [call.kwargs["params"] for call in calls] == [
+            {"status": "failed", "limit": 2},
+            {"status": "failed", "limit": 2, "page_token": "t1"},
+            {"status": "failed", "limit": 2, "page_token": "t2"},
+        ]
+
+    def test_reads_the_next_page_only_when_iterated(self):
+        c = _make_client()
+        c._session.get.side_effect = [
+            _make_response({"jobs": [{"job_id": "b"}], "next_page_token": "t1"}),
+            _make_response({"jobs": [{"job_id": "a"}]}),
+        ]
+
+        jobs = c.iter_jobs()
+
+        assert next(jobs) == {"job_id": "b"}
+        assert c._session.get.call_count == 1
+        assert list(jobs) == [{"job_id": "a"}]
+        assert c._session.get.call_count == 2
+
+    def test_404_is_not_retried_and_says_listing_is_not_enabled(self):
+        c = _make_client()
+        c._session.get.return_value = _make_error_response(
+            {"message": "Account-level job listing is not enabled for this account"},
+            404,
+        )
+
+        with pytest.raises(
+            nc.requests.exceptions.HTTPError,
+            match="account-level job listing is not enabled for this account",
+        ) as exc:
+            list(c.iter_jobs())
+
+        assert exc.value.response.status_code == 404
+        assert c.max_retries == 10
+        c._session.get.assert_called_once()
+        # No auto-create, or any other request, follows a 404.
+        c._session.post.assert_not_called()
+
+    def test_a_not_found_error_does_not_create_the_configured_database(self):
+        c = _make_client()
+        c._session.get.return_value = _make_error_response(
+            {"message": "Database 'NOPE' does not exist or not authorized."}, 400
+        )
+
+        with pytest.raises(nc.requests.exceptions.HTTPError, match="400 Client Error"):
+            list(c.iter_jobs(database="NOPE"))
+
+        # The same response on a schema route would run CREATE DATABASE DB.
+        assert c._is_database_not_found(c._session.get.return_value)
+        c._session.get.assert_called_once()
+        c._session.post.assert_not_called()
+        assert c._db_ensured is False
+
+    def test_other_transient_errors_are_still_retried(self, monkeypatch):
+        monkeypatch.setattr(
+            nc,
+            "wait_exponential_jitter",
+            lambda **kwargs: lambda retry_state: 0,
+        )
+        c = _make_client()
+        c._session.get.side_effect = [
+            _make_error_response({"message": "unavailable"}, 503),
+            _make_response({"jobs": [{"job_id": "a"}]}),
+        ]
+
+        assert list(c.iter_jobs()) == [{"job_id": "a"}]
+        assert c._session.get.call_count == 2
+
+    def test_bad_request_is_raised_unchanged(self):
+        c = _make_client()
+        c._session.get.return_value = _make_error_response(
+            {"message": "Invalid database or schema scope"}, 400
+        )
+
+        with pytest.raises(nc.requests.exceptions.HTTPError, match="400 Client Error"):
+            list(c.iter_jobs(database="NOPE"))
+
+        c._session.get.assert_called_once()
+
+    def test_emits_one_metric_per_page_without_filter_values(self, monkeypatch):
+        monkeypatch.setenv(nc.ENABLE_SUCCESS_TELEMETRY_ENV, "1")
+        c = _make_client()
+        c._metric_emitter = MagicMock()
+        c._session.get.side_effect = [
+            _make_response({"jobs": [{"job_id": "b"}], "next_page_token": "t1"}),
+            _make_error_response({"message": "not enabled"}, 404),
+        ]
+
+        with pytest.raises(nc.requests.exceptions.HTTPError):
+            list(c.iter_jobs(submitted_by="jdoe"))
+
+        calls = c._metric_emitter.emit.call_args_list
+        assert [call.args[0] for call in calls] == ["iter_jobs", "iter_jobs"]
+        assert [call.args[1]["success"] for call in calls] == [True, False]
+        assert [call.args[1]["request_count"] for call in calls] == [1, 1]
+        assert [call.kwargs["attributes"] for call in calls] == [
+            {},
+            {"error.type": "HTTPError", "error.http_status": 404},
+        ]
+        assert "jdoe" not in repr(calls)
+
+
+class TestForJob:
+    @pytest.mark.parametrize(
+        ("database_name", "schema_name", "path"),
+        [
+            ("ML", "EXP_1$", "ML/schemas/EXP_1$"),
+            ("_DB", "PUBLIC", "_DB/schemas/PUBLIC"),
+            ("ml", "Exp1", "%22ml%22/schemas/%22Exp1%22"),
+            ("My DB", 'a"b', "%22My%20DB%22/schemas/%22a%22%22b%22"),
+            ("1DB", "a/b?c#d%e", "%221DB%22/schemas/%22a%2Fb%3Fc%23d%25e%22"),
+            ("DB\n", "$X", "%22DB%0A%22/schemas/%22$X%22"),
+        ],
+    )
+    def test_binds_quoted_percent_encoded_names(
+        self, database_name, schema_name, path
+    ):
+        c = _make_client()
+
+        job_client = c.for_job(
+            {"job_id": "j1", "database_name": database_name, "schema_name": schema_name}
+        )
+
+        assert job_client._prefix == (
+            f"http://test.local/api/v2/databases/{path}/cortex-training"
+        )
+        database_segment, schema_segment = path.split("/schemas/")
+        assert _resolve_identifier(database_segment) == database_name
+        assert _resolve_identifier(schema_segment) == schema_name
+
+    def test_shares_session_auth_and_telemetry_and_copies_settings(self):
+        c = CortexTrainingClient(
+            base_url="http://test.local",
+            database="DB",
+            schema="SCH",
+            endpoint="training-v2",
+            poll_interval=1.0,
+            poll_timeout=60.0,
+            poll_backoff_multiplier=2.0,
+            poll_max_interval=8.0,
+            max_retries=3,
+            request_timeout=(5.0, 7.0),
+        )
+        c._session = MagicMock()
+        c._session.get.return_value = _make_response({"job_id": "j1"})
+        c._auth_provider = MagicMock()
+        c._auth_provider.get_token.return_value = "tok"
+        c._metric_emitter = MagicMock()
+        c._artifact_connection_config = {"host": "x.test", "pat": "pat"}
+        c._artifact_connection_factory = MagicMock()
+
+        job_client = c.for_job(
+            {"job_id": "j1", "database_name": "ML", "schema_name": "EXP"}
+        )
+
+        assert type(job_client) is CortexTrainingClient and job_client is not c
+        assert job_client._session is c._session
+        assert job_client._auth_provider is c._auth_provider
+        assert job_client._metric_emitter is c._metric_emitter
+        assert job_client._artifact_connection_config is c._artifact_connection_config
+        assert job_client._artifact_connection_factory is c._artifact_connection_factory
+        assert (
+            job_client.endpoint,
+            job_client.poll_interval,
+            job_client.poll_timeout,
+            job_client.poll_backoff_multiplier,
+            job_client.poll_max_interval,
+            job_client.max_retries,
+            job_client.request_timeout,
+        ) == ("training-v2", 1.0, 60.0, 2.0, 8.0, 3, (5.0, 7.0))
+        assert (c.database, c.schema) == ("DB", "SCH")
+
+        job_client.get_job("j1")
+
+        c._session.get.assert_called_once_with(
+            "http://test.local/api/v2/databases/ML/schemas/EXP/training-v2/j1",
+            headers={"Authorization": 'Snowflake Token="tok"'},
+        )
+
+    def test_closes_the_session_it_opened_before_borrowing(self):
+        c = _make_client()
+
+        with patch.object(
+            nc._DefaultTimeoutSession, "close", autospec=True
+        ) as closed:
+            job_client = c.for_job({"database_name": "ML", "schema_name": "EXP"})
+
+        # The constructor opens a session and a connection pool; for_job
+        # releases them instead of leaking one per call.
+        closed.assert_called_once()
+        leaked = closed.call_args.args[0]
+        assert leaked is not c._session
+        assert job_client._session is c._session
+
+    def test_closing_it_leaves_the_parent_session_auth_and_telemetry_open(self):
+        c = _make_client()
+        c._auth_provider = MagicMock()
+        c._metric_emitter = MagicMock()
+
+        job_client = c.for_job({"database_name": "ML", "schema_name": "EXP"})
+        with job_client:
+            pass
+        job_client.close()
+
+        assert c._session.close.called is False
+        assert c._auth_provider.close.called is False
+        assert c._metric_emitter.close.called is False
+        # The parent still owns all three and closes them.
+        c.close()
+        assert c._session.close.called
+        assert c._auth_provider.close.called
+        assert c._metric_emitter.close.called
+
+    def test_does_not_create_the_jobs_database(self):
+        c = _make_client()
+        c._session.get.return_value = _make_error_response(
+            {"message": "Schema OTHER_DB.PUBLIC is not found or not authorized."}, 400
+        )
+
+        job_client = c.for_job({"database_name": "OTHER_DB", "schema_name": "PUBLIC"})
+        with pytest.raises(nc.requests.exceptions.HTTPError, match="400 Client Error"):
+            job_client.get_job("j1")
+
+        # The listed database already exists and may belong to another role, so
+        # the not-found answer surfaces instead of a CREATE DATABASE for it.
+        assert c._is_database_not_found(c._session.get.return_value)
+        c._session.post.assert_not_called()
+        assert job_client._db_ensured is False
+
+    def test_returns_a_client_of_the_same_class(self):
+        class SubClient(CortexTrainingClient):
+            pass
+
+        c = SubClient(base_url="http://test.local", database="DB", schema="SCH")
+
+        job_client = c.for_job({"database_name": "ML", "schema_name": "EXP"})
+
+        assert type(job_client) is SubClient
+
+
 # ─── CortexTrainingClient — wait_for_job ─────────────────────────────────────
 
 
@@ -2716,12 +3102,165 @@ class TestDataPlane:
             },
         }
 
-    def test_forward_rejects_oversized_bytes_payload(self):
+    def test_forward_chunk_envelope_keys_match_the_backend_reader(self, monkeypatch):
+        """Pin the envelope shape the backend parses: payload_b64 + content_type."""
+        from cortex_training import wire
+
+        monkeypatch.setenv(nc._OPERATION_MAX_JSON_BYTES_ENV, str(64 * 1024))
+        c = _make_client(post_json={"chunk_cached": True})
+        frame = wire.dumps({"input_ids": torch.zeros(1, 60_000, dtype=torch.long)})
+        with contextlib.suppress(RuntimeError):
+            c.forward("j1", frame, sub_job_id="j1:training:0")
+
+        assert c._session.post.call_count > 1
+        for call in c._session.post.call_args_list:
+            payload = call.kwargs["json"]["payload"]
+            assert set(payload) == {"payload_b64", "content_type"}
+            assert payload["content_type"] == "application/octet-stream"
+            assert isinstance(payload["payload_b64"], str)
+
+    def test_forward_sends_a_fitting_frame_as_one_unchunked_post(self):
+        # The server assembler rejects total_chunks <= 1, so a fitting frame
+        # is posted raw.
+        from cortex_training import wire
+
         c = _make_client(post_json={"request_id": "r-forward"})
-        oversized = b"\x00" * (CortexTrainingClient._MAX_FWD_BWD_BYTES + 1)
-        with pytest.raises(ValueError, match="exceeds the maximum allowed size"):
-            c.forward("j1", oversized)
+        frame = wire.dumps({"input_ids": torch.zeros(2, 4, dtype=torch.long)})
+        c.forward("j1", frame, sub_job_id="j1:training:0")
+        assert c._session.post.call_count == 1
+        payload = c._session.post.call_args.kwargs["json"]["payload"]
+        sent = base64.b64decode(payload["payload_b64"])
+        assert sent == frame
+        assert wire.read_byte_chunk_metadata(sent) is None
+        assert "r-forward" in c._forward_request_ids
+
+    def test_forward_chunks_an_oversized_frame_across_operation_posts(self, monkeypatch):
+        from cortex_training import wire
+
+        max_json = 64 * 1024
+        monkeypatch.setenv(nc._OPERATION_MAX_JSON_BYTES_ENV, str(max_json))
+        frame = wire.dumps({"input_ids": torch.zeros(1, 60_000, dtype=torch.long)})
+        expected_chunks = len(
+            wire.encode_byte_chunks(
+                frame,
+                kind="request",
+                operation="forward",
+                max_bytes=nc._operation_chunk_max_bytes(max_json),
+            )
+        )
+        assert expected_chunks > 1
+
+        c = _make_client()
+        bodies = [{"chunk_cached": True}] * (expected_chunks - 1) + [{"request_id": "r-forward"}]
+        c._session.post.side_effect = [_make_response(body) for body in bodies]
+
+        out = c.forward("j1", frame, sub_job_id="j1:training:0")
+        assert out == {"request_id": "r-forward"}
+        assert "r-forward" in c._forward_request_ids
+        assert c._session.post.call_count == expected_chunks
+
+        chunks = []
+        for call in c._session.post.call_args_list:
+            body = call.kwargs["json"]
+            assert body["operation_type"] == "forward"
+            assert body["sub_job_id"] == "j1:training:0"
+            assert len(json.dumps(body).encode("utf-8")) <= 64 * 1024
+            chunks.append(base64.b64decode(body["payload"]["payload_b64"]))
+
+        descriptors = [wire.read_byte_chunk_metadata(chunk) for chunk in chunks]
+        assert all(desc is not None for desc in descriptors)
+        assert {desc["operation"] for desc in descriptors} == {"forward"}
+        assert len({desc["chunk_group_id"] for desc in descriptors}) == 1
+        assert wire.decode_byte_chunks(chunks, kind="request") == frame
+
+    def test_forward_raises_when_a_non_final_chunk_returns_a_request_id(self, monkeypatch):
+        from cortex_training import wire
+
+        monkeypatch.setenv(nc._OPERATION_MAX_JSON_BYTES_ENV, str(64 * 1024))
+        c = _make_client(post_json={"request_id": "r-forward"})
+        frame = wire.dumps({"input_ids": torch.zeros(1, 60_000, dtype=torch.long)})
+        with pytest.raises(RuntimeError, match="chunk 0 unexpectedly returned request_id"):
+            c.forward("j1", frame)
+        assert "r-forward" not in c._forward_request_ids
+
+    def test_operation_rejects_a_body_over_the_declared_ceiling(self):
+        c = _make_client(post_json={})
+        with pytest.raises(ValueError, match="exceeds the .* limit for one /operation"):
+            c._operation("j1", "forward", payload=b"\x00" * 4096, max_json_bytes=1024)
         c._session.post.assert_not_called()
+
+    def test_forward_does_not_retry_a_chunk_group_conflict(self, monkeypatch):
+        from cortex_training import wire
+
+        monkeypatch.setenv(nc._OPERATION_MAX_JSON_BYTES_ENV, str(64 * 1024))
+        c = _make_client()
+        conflict = _make_error_response(
+            {
+                "code": "chunk_group_missing_chunks",
+                "message": "request chunk group is missing chunks",
+                "chunk_group_id": "grp-1",
+                "missing_chunks": [0, 1],
+            }
+        )
+        c._session.post.return_value = conflict
+        frame = wire.dumps({"input_ids": torch.zeros(1, 60_000, dtype=torch.long)})
+
+        with pytest.raises(nc.ChunkGroupConflictError) as excinfo:
+            c.forward("j1", frame)
+        assert excinfo.value.detail["missing_chunks"] == [0, 1]
+        assert c._session.post.call_count == 1
+
+    def test_operation_body_size_is_measured_without_copying_the_payload(self):
+        body = {
+            "operation_type": "forward",
+            "sub_job_id": "j1:training:0",
+            "payload": {"payload_b64": "QUJD" * 1000, "content_type": "application/octet-stream"},
+        }
+        assert nc._operation_body_json_bytes(body) == len(json.dumps(body).encode("utf-8"))
+        no_payload = {"operation_type": "step"}
+        assert nc._operation_body_json_bytes(no_payload) == len(
+            json.dumps(no_payload).encode("utf-8")
+        )
+
+    def test_operation_without_a_declared_ceiling_is_unbounded(self):
+        c = _make_client(post_json={"ok": True})
+        assert c._operation("j1", "weight-sync", payload=b"\x00" * 4096) == {"ok": True}
+        c._session.post.assert_called_once()
+
+    def test_forward_operation_json_ceiling_env_must_be_sane(self, monkeypatch):
+        monkeypatch.setenv(nc._OPERATION_MAX_JSON_BYTES_ENV, "not-a-number")
+        with pytest.raises(ValueError, match="must be an integer"):
+            nc._operation_max_json_bytes()
+        monkeypatch.setenv(
+            nc._OPERATION_MAX_JSON_BYTES_ENV,
+            str(nc._MIN_OPERATION_MAX_JSON_BYTES - 1),
+        )
+        with pytest.raises(ValueError, match="must be at least 16384 bytes"):
+            nc._operation_max_json_bytes()
+        monkeypatch.setenv(
+            nc._OPERATION_MAX_JSON_BYTES_ENV,
+            str(nc._MIN_OPERATION_MAX_JSON_BYTES),
+        )
+        assert nc._operation_max_json_bytes() == 16 * 1024
+        assert nc._operation_chunk_max_bytes(nc._operation_max_json_bytes()) == 9 * 1024
+
+    def test_forward_dict_payload_still_takes_the_plain_operation_path(self):
+        c = _make_client(post_json={"request_id": "r-forward"})
+        c.forward("j1", {"probe": True}, sub_job_type="training")
+        assert c._session.post.call_count == 1
+        assert c._session.post.call_args.kwargs["json"] == {
+            "operation_type": "forward",
+            "sub_job_type": "training",
+            "payload": {"probe": True},
+        }
+
+    def test_operation_debug_log_omits_the_base64_payload(self, caplog, capsys):
+        c = _make_client(post_json={"request_id": "r-forward"})
+        with caplog.at_level(logging.DEBUG, logger=nc.logger.name):
+            c.forward("j1", b"\xab" * 4096)
+        assert "base64 chars>" in caplog.text
+        assert base64.b64encode(b"\xab" * 4096).decode("ascii") not in caplog.text
+        assert capsys.readouterr().out == ""
 
     def test_bootstrap_router_replay(self):
         c = _make_client(post_json={"request_id": "r-bootstrap"})

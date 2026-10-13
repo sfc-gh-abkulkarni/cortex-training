@@ -103,12 +103,14 @@ cortex-training submit - < job.json           # Read JSON from stdin
 ```bash
 cortex-training list
 cortex-training list --status running
+cortex-training list --status active,failed --user JDOE --since 2026-10-01 --limit 20
+cortex-training list --all                    # Every schema you can see
 cortex-training get JOB_ID
 cortex-training wait JOB_ID                   # Wait until running, not finished
 cortex-training cancel JOB_ID
 cortex-training checkpoints JOB_ID
-cortex-training capacity                      # All supported GPU types
-cortex-training capacity --hardware B200
+cortex-training capacity                      # Every GPU type your account supports
+cortex-training capacity --hardware H200
 ```
 
 ### [Training And Generation](#run-a-forward-backward-smoke-test)
@@ -166,7 +168,7 @@ cortex-training fwd-bwd --help
 | `fwd-bwd`, `generate` | Poll the submitted request until completion | Set top-level `"poll": false` in the input JSON |
 | `step` | Poll until completion; learning rate `1e-4` | Set `--lr`; polling cannot be disabled |
 | `load`, `weight-sync` | Poll the submitted request until completion | `--no-poll` returns without waiting for the result |
-| `capacity` | Query H200, B200, and B300 | Select one with `--hardware` |
+| `capacity` | Query each GPU type the account supports | Select one with `--hardware` |
 | `download-log`, `download-metrics` | Write under the current directory | Set `--output-dir` |
 
 ## Detailed Reference
@@ -287,11 +289,33 @@ Explicit CLI flags override config values.
 ```bash
 cortex-training list
 cortex-training list --status running
+cortex-training list --status active,failed --user JDOE --since 2026-10-01 --limit 20
+cortex-training list --all
 cortex-training get JOB_ID
 cortex-training checkpoints JOB_ID
 cortex-training cancel JOB_ID
 cortex-training wait JOB_ID
 ```
+
+`list` takes these filters:
+
+| Flag | Takes | Notes |
+|---|---|---|
+| `--all` | nothing | lists jobs across every schema in the account that you can see, not just the configured one |
+| `--status` | comma list of `pending`, `placing`, `initializing`, `running`, `failed`, `cancelled`, `terminated`, `active`, `done` | `active` is `pending` through `running`; `done` is `cancelled`, `terminated`, and the `done` that older jobs show; `pending` does not include `placing`. Matched against a row's status in any form the server sends, including `JOB_STATE_RUNNING` and aliases such as `canceled`, `completed`, `succeeded`, `error`, `queued`, `creating` |
+| `--user` | user name | SQL name rules: unquoted means its uppercase form, `"quoted"` means exactly that name |
+| `--since` | `YYYY-MM-DD` | a UTC day; keeps jobs created on or after it |
+| `--until` | `YYYY-MM-DD` | a UTC day; keeps jobs created on or before it, so `--since D --until D` means "on day D" |
+| `--limit` | number | prints at most this many of the newest matching jobs by `created_at`; a job listed without one counts as oldest |
+
+Without `--all`, the CLI fetches the configured schema's jobs and applies the
+filters itself, leaving out a job with no `created_at` when `--since` or
+`--until` is set. With `--all`, the server applies them across the account
+([REST API reference section 5.3](rest-api.md#across-the-account---get-apiv2endpoint));
+where account-level listing is not enabled for the account, the command fails
+with `account-level job listing is not enabled for this account`. A bad
+`--status`, `--since`, `--until`, or `--limit`, or an empty `--user`, exits
+with status 2 before connecting.
 
 `get` fetches current job details; `checkpoints` lists saved checkpoints.
 `wait` waits for the job to reach **running**, not for training to finish.
@@ -304,13 +328,28 @@ by hardware:
 
 ```bash
 cortex-training capacity
-cortex-training capacity --hardware B200
+cortex-training capacity --hardware H200
 ```
 
 The default command queries `H200`, `B200`, and `B300` independently and
-prints a `capacity_by_hardware` map. Each entry includes `has_reservation`,
-`max_total_gpus`, `reserved_gpus`, `in_use_gpus`, `pending_gpus`, and
-`available_gpus`.
+prints a `capacity_by_hardware` map with one entry per GPU type your account
+supports. Each entry includes `has_reservation`, `max_total_gpus`,
+`reserved_gpus`, `in_use_gpus`, `pending_gpus`, and `available_gpus`. Types the
+service rejects as unsupported for the account (error code `517604`) are listed
+in `unsupported_hardware` instead, which is empty when every type is supported:
+
+```json
+{
+  "capacity_by_hardware": {
+    "B300": {"available_gpus": 8, "has_reservation": true, "max_total_gpus": 8, "...": "..."},
+    "H200": {"available_gpus": 16, "has_reservation": true, "max_total_gpus": 16, "...": "..."}
+  },
+  "unsupported_hardware": ["B200"]
+}
+```
+
+Any other error still fails the command, and so does an account that supports
+none of the types.
 
 Each hardware lookup is attempted once with at most a 10-second connect timeout
 and a 30-second read timeout; a shorter SDK timeout still wins. A silent
@@ -318,7 +357,9 @@ network, proxy, or service hop therefore fails instead of leaving the command
 blocked indefinitely. The three lookups run serially; use `--hardware` when
 only one type is needed.
 
-`--hardware` keeps the single-capacity response shape for one GPU type.
+`--hardware` keeps the single-capacity response shape for one GPU type. Asking
+for a type your account does not support returns the service's error, which
+names the supported types.
 
 `max_total_gpus` is the canonical ceiling and supersedes the deprecated
 `reserved_gpus`. `in_use_gpus` counts only GPUs the account holds; queued work
@@ -686,6 +727,10 @@ are emitted by default. See the [Python SDK reference](python-sdk.md#client-metr
 `CORTEX_TRAINING_DISABLE_TENSOR_PROMPTS` (truthy) sends pre-tokenized prompts
 as JSON lists inside the request frame instead of as tensors. The request body
 stays a DSSST1 frame either way.
+
+`CORTEX_TRAINING_FORWARD_OPERATION_MAX_JSON_BYTES` is the per-request JSON body
+ceiling for byte `forward()` `/operation` posts (integer bytes, default 16 MiB,
+minimum 16 KiB). Frames larger than that are split into request chunks.
 
 ### Troubleshooting
 
