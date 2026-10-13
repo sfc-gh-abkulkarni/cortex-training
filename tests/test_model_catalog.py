@@ -205,10 +205,10 @@ def test_moe_sft_recipes_have_runnable_parallelism():
         ),
         "glm53-flash-bf16-sft-full-256k.json": (
             "zai-org/GLM-5.3-Flash-BF16",
+            64,
             32,
-            16,
             262144,
-            32,
+            64,
             1,
         ),
         "qwen38-flash-next-sft-full-256k.json": (
@@ -243,7 +243,8 @@ def test_moe_sft_recipes_have_runnable_parallelism():
             "glm53-flash-bf16-sft-full-256k.json",
         }:
             assert training["prime_rl"] == {"ep_comm_backend": "uccl"}
-            assert training["tiled_mlp_token_chunk_size"] == 1024
+            expected_chunk = 512 if "-bf16-" in filename else 1024
+            assert training["tiled_mlp_token_chunk_size"] == expected_chunk
             assert training["ds_config"]["bf16"]["bf16_optimizer_states"] is True
             assert training["ds_config"]["bf16"]["bf16_master_weights_and_grads"] is True
         else:
@@ -325,12 +326,12 @@ def test_moe_rl_recipes_have_runnable_parallelism():
         ),
         "glm53-flash-bf16-rl-full-256k.json": (
             "zai-org/GLM-5.3-Flash-BF16",
+            64,
             32,
-            16,
             8,
             "sparse_mla",
             262144,
-            32,
+            64,
             1,
         ),
         "qwen38-flash-next-rl-full-256k.json": (
@@ -379,7 +380,8 @@ def test_moe_rl_recipes_have_runnable_parallelism():
             "glm53-flash-bf16-rl-full-256k.json",
         }:
             assert training_config["prime_rl"] == {"ep_comm_backend": "uccl"}
-            assert training_config["tiled_mlp_token_chunk_size"] == 1024
+            expected_chunk = 512 if "-bf16-" in filename else 1024
+            assert training_config["tiled_mlp_token_chunk_size"] == expected_chunk
             assert training_config["ds_config"]["bf16"]["bf16_optimizer_states"] is True
         else:
             assert "prime_rl" not in training_config

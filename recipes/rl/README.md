@@ -83,9 +83,10 @@ is 16 GPUs, SP16, EP8, `qsa_flex`, and a 256K context.
 training mesh as the SFT recipe, including the tiled MLP chunk of 1024.
 Its sampler stays at 8 GPUs and TP8 with a 256K context. The completed
 evidence is the training optimizer step; sampling was not probed.
-`glm53-flash-bf16-rl-full-256k.json` uses that same training mesh and sampler
-shape for `zai-org/GLM-5.3-Flash-BF16`. The BF16 checkpoint has not completed
-its own 256K step.
+`glm53-flash-bf16-rl-full-256k.json` uses a 64-GPU, SP64, EP32, UCCL
+training mesh with tiled MLP chunk 512. Its sampler remains 8 GPUs and TP8.
+The BF16 mesh is an unproven capacity estimate based on the FP8 run; that
+checkpoint has not completed its own 256K step.
 
 ## Customizability
 

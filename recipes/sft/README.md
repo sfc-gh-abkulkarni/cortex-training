@@ -159,7 +159,7 @@ cross-node EP16 does not complete with DeepEP.
 - `nemotron3-nano-30b-sft-full-4k.json`: Nemotron-3-Nano-30B-A3B-BF16, 4 GPUs, EP4, 4K
 - `minimax-m2-sft-full-4k.json`: MiniMax-M2-BF16, 16 GPUs, EP8, 4K, CPU optimizer offload
 - `glm53-flash-sft-full-256k.json`: GLM-5.3-Flash FP8 weights, 32 GPUs, SP32, EP16, 256K, UCCL, tiled MLP chunk 1024. One optimizer step completed on H200 with about 3 GiB of device headroom.
-- `glm53-flash-bf16-sft-full-256k.json`: GLM-5.3-Flash-BF16, 32 GPUs, SP32, EP16, 256K, UCCL, tiled MLP chunk 1024. Same mesh as the FP8 recipe. This checkpoint has not completed its own 256K step.
+- `glm53-flash-bf16-sft-full-256k.json`: GLM-5.3-Flash-BF16, 64 GPUs, SP64, EP32, 256K, UCCL, tiled MLP chunk 512. This is an unproven capacity estimate based on the FP8 run; the BF16 checkpoint has not completed its own 256K step.
 
 ```bash
 python -m recipes.sft.conversational.train \
