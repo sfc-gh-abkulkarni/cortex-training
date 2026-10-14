@@ -518,12 +518,21 @@ def test_moe_rl_enables_router_replay_on_sampling_only():
     }
 
 
+def test_recipes_do_not_name_a_model_provider():
+    offenders = [
+        str(path.relative_to(REPO_ROOT))
+        for path in (REPO_ROOT / "recipes").rglob("*")
+        if path.suffix in {".json", ".ipynb", ".md", ".py"} and "model_provider" in path.read_text()
+    ]
+    assert offenders == []
+
+
 @pytest.mark.parametrize("profile_key", ["sftLora", "rlLora"])
 @pytest.mark.parametrize(
     ("long_sequence", "expected_context", "expected_sp"),
     [(False, 32768, 1), (True, 262144, 8)],
 )
-def test_qwen36_lora_uses_prime_rl_attention_targets(
+def test_qwen36_lora_uses_attention_targets(
     profile_key,
     long_sequence,
     expected_context,
@@ -548,7 +557,7 @@ def test_qwen36_lora_uses_prime_rl_attention_targets(
         for sub_job in request["sub_job_configs"]
         if sub_job["job_type"] == "training"
     )
-    assert training["model_provider"] == "prime_rl"
+    assert "model_provider" not in training
     assert training.get("sp_size", 1) == expected_sp
     assert {
         tuple(

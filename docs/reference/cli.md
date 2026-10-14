@@ -441,7 +441,8 @@ cortex-training submit examples/api/sampling.json
 ```
 
 That file creates a training sub-job for `Qwen/Qwen3.6-35B-A3B` with
-`training_config.model_provider` set to `prime_rl`.
+expert parallelism. Dense models run on Hugging Face and MoE models run on
+the Arctic stack.
 
 ### Run A Forward-Backward Smoke Test
 

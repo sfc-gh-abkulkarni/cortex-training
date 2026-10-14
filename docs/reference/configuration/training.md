@@ -10,7 +10,9 @@ The recipes take two separate things:
 
 Everything that shapes the run lives in the job-config JSON:
 
-- Model, precision, and provider (`model_name`, `dtype`, `model_provider`)
+- Model and precision (`model_name`, `dtype`). Dense models run on Hugging
+  Face; MoE models run on the Arctic stack. Set `use_liger` to apply Liger
+  kernels on a dense model.
 - GPU count and parallelism (`n_gpus`, `ep_size`)
 - Sequence length and batch shape (`max_seq_len`, `train_batch_size`, `ds_config`)
 - Optimizer and gradient clipping (`optimizer`, `gradient_clipping`)
