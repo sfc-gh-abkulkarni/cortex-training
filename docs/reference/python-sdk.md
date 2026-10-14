@@ -62,8 +62,16 @@ Each emitted event body contains `success`, `duration_ms`, `request_count`,
 `attempt_count`, and `retry_count`. Failures also include a bounded
 `error_message` with common credential patterns redacted. Queryable attributes
 include available `job_id`, sub-job identifiers, `request_id`,
-`checkpoint_id`, `error.type`, HTTP status, Snowflake request ID, and server
-error code. Records use OTLP resource attributes
+`checkpoint_id`, `error.type`, HTTP status, and server error code.
+Two attributes carry Snowflake request IDs:
+
+| Attribute | Meaning | When set |
+|---|---|---|
+| `error.snowflake_request_id` | Snowflake request ID of the failing response | Failures whose response had the header |
+| `snowflake.request_ids` | Recent Snowflake request IDs of the operation (up to 10, including retried attempts), newest last | Whenever any were seen |
+
+`snowflake.request_id` is a deprecated alias of `error.snowflake_request_id`,
+emitted for one release. Records use OTLP resource attributes
 `service.name = cortex-training` and
 `snowflake.account_host = <normalized connection hostname>`.
 

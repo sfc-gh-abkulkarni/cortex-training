@@ -2684,3 +2684,13 @@ def test_format_error_leaves_other_http_errors_unchanged() -> None:
 
     assert "409 Client Error" in message
     assert "network policy" not in message
+
+
+def test_format_error_does_not_repeat_request_id_already_in_message() -> None:
+    exc = FakeHTTPError()
+    exc.args = (f"[snowflake request id: sf-req-1] {exc.args[0]}",)
+
+    message = cli._format_error(exc)
+
+    assert message.count("sf-req-1") == 1
+    assert "response body:" in message
