@@ -27,63 +27,63 @@ python -m recipes.rl.math_grpo.train \
 # Qwen3-8B full-parameter
 python -m recipes.rl.math_grpo.train \
   config=/path/to/config.json \
-  job_config=configs/qwen3-8b-rl-full-32k.json
+  job_config=configs/qwen3_8b_full.json
 
 # Qwen3.6-35B-A3B LoRA
 python -m recipes.rl.math_grpo.train \
   config=/path/to/config.json \
-  job_config=configs/qwen36-35b-a3b-rl-lora-256k.json \
+  job_config=configs/qwen36_35b_a3b_lora.json \
   max_tokens=2048
 
 # Qwen3.6-35B-A3B full-parameter
 python -m recipes.rl.math_grpo.train \
   config=/path/to/config.json \
-  job_config=configs/qwen36-35b-a3b-rl-full-256k.json \
+  job_config=configs/qwen36_35b_a3b_full.json \
   max_tokens=2048
 
 # Qwen3.8-27B full-parameter
 python -m recipes.rl.math_grpo.train \
   config=/path/to/config.json \
-  job_config=configs/qwen38-27b-rl-full-32k.json \
+  job_config=configs/qwen38_27b_full.json \
   weight_sync_bucket_size=3221225472 \
   max_tokens=2048
 
 # Qwen3-30B-A3B full-parameter
 python -m recipes.rl.math_grpo.train \
   config=/path/to/config.json \
-  job_config=configs/qwen3-30b-a3b-rl-full-40k.json
+  job_config=configs/qwen3_30b_a3b.json
 
 # Qwen3.8-Flash-Next full-parameter, 256K context
 python -m recipes.rl.math_grpo.train \
   config=/path/to/config.json \
-  job_config=configs/qwen38-flash-next-rl-full-256k.json
+  job_config=configs/qwen38_flash_next.json
 ```
 
 `config=` is the Snowflake connection file. Adapt from
 `examples/config/connection.json.template`.
 
-The default job body is `configs/qwen3-8b-rl-lora-32k.json`. The default run will be finished within 1h.
+The default job body is `configs/qwen3_8b_lora.json`. The default run will be finished within 1h.
 
 Other full-parameter job bodies are:
 
-- `configs/qwen3-30b-a3b-rl-full-40k.json`
-- `configs/glm45-air-rl-full-128k.json`
-- `configs/minimax-m2-rl-full-4k.json`
-- `configs/trinity-mini-rl-full-128k.json`
-- `configs/nemotron3-nano-30b-rl-full-4k.json`
-- `configs/glm53-flash-rl-full-256k.json` (FP8 weights)
-- `configs/glm53-flash-bf16-rl-full-256k.json`
-- `configs/qwen38-flash-next-rl-full-256k.json`
+- `configs/qwen3_30b_a3b.json`
+- `configs/glm45_air.json`
+- `configs/minimax_m2.json`
+- `configs/trinity_mini.json`
+- `configs/nemotron3_nano_30b.json`
+- `configs/glm53_flash.json` (FP8 weights)
+- `configs/glm53_flash_bf16.json`
+- `configs/qwen38_flash_next.json`
 
 The training block of each renamed RL recipe matches its SFT recipe.
-`qwen38-flash-next-rl-full-256k.json` keeps the 16-GPU
+`qwen38_flash_next.json` keeps the 16-GPU
 sampler at TP8, `weight_format: vllm`, and router replay. Its training mesh
 is 16 GPUs, SP16, EP8, `qsa_flex`, and a 256K context.
-`glm53-flash-rl-full-256k.json` uses the same 32-GPU, SP32, EP16, UCCL
+`glm53_flash.json` uses the same 32-GPU, SP32, EP16, UCCL
 training mesh as the SFT recipe, including the tiled MLP chunk of 1024.
 Its sampler stays at 8 GPUs and TP8 with a 256K context. The completed
 evidence is the training optimizer step; sampling was not probed.
-`glm53-flash-bf16-rl-full-256k.json` uses a 64-GPU, SP64, EP32, UCCL
+`glm53_flash_bf16.json` uses a 64-GPU, SP64, EP32, UCCL
 training mesh with tiled MLP chunk 512. Its sampler remains 8 GPUs and TP8.
 The BF16 mesh is an unproven capacity estimate based on the FP8 run; that
 checkpoint has not completed its own 256K step.

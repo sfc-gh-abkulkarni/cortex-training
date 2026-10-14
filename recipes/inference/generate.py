@@ -69,7 +69,7 @@ class Config:
     config: str
     job_id: str | None = None  # attach to a running inference endpoint
 
-    job_config: str = "configs/qwen3-8b-inference-full.json"
+    job_config: str = "configs/qwen3_8b_full.json"
     debug_image_tag: str | None = None
     keep_job: bool | None = None
 

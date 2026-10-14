@@ -1,7 +1,7 @@
 # Full-Parameter Fine-Tuning
 
 The conversational SFT recipe trains all parameters whenever the job config has
-no `peft_config` block. Its default config, `configs/qwen3-8b-sft-full-32k.json`, is one
+no `peft_config` block. Its default config, `configs/qwen3_8b_full.json`, is one
 of those, so the plain command is already a full fine-tune:
 
 ```bash
@@ -14,7 +14,7 @@ For a MoE model, use the matching config, which sets `ep_size`:
 ```bash
 python -m recipes.sft.conversational.train \
   config=/path/to/config.json \
-  job_config=configs/qwen36-35b-a3b-sft-full-256k.json
+  job_config=configs/qwen36_35b_a3b_full.json
 ```
 
 Full fine-tuning generally requires more memory than LoRA at the same GPU count;

@@ -15,7 +15,7 @@ cortex-training capacity
 ## Create an Endpoint
 
 `config=` is the Snowflake connection file only. The default job body is
-`configs/qwen3-8b-inference-full.json`.
+`configs/qwen3_8b_full.json`.
 
 From original Hugging Face weights:
 
@@ -82,41 +82,41 @@ shipped example or a copy with `job_config=JOB_CONFIG`.
 ```
 
 The target list above is for dense Qwen models. A Qwen3.6 LoRA checkpoint uses
-the attention-only target list in `configs/qwen36-35b-a3b-inference-lora.json`; the
+the attention-only target list in `configs/qwen36_35b_a3b_lora.json`; the
 sampling and training PEFT configurations must match.
 
 ```bash
 # Qwen3-8B LoRA
 python -m recipes.inference.serve \
   config=/path/to/config.json \
-  job_config=configs/qwen3-8b-inference-lora.json
+  job_config=configs/qwen3_8b_lora.json
 
 # Qwen3.5-9B LoRA / full
 python -m recipes.inference.serve \
   config=/path/to/config.json \
-  job_config=configs/qwen35-9b-inference-lora.json
+  job_config=configs/qwen35_9b_lora.json
 
 python -m recipes.inference.serve \
   config=/path/to/config.json \
-  job_config=configs/qwen35-9b-inference-full.json
+  job_config=configs/qwen35_9b_full.json
 
 # Qwen3.8-27B LoRA / full
 python -m recipes.inference.serve \
   config=/path/to/config.json \
-  job_config=configs/qwen38-27b-inference-lora.json
+  job_config=configs/qwen38_27b_lora.json
 
 python -m recipes.inference.serve \
   config=/path/to/config.json \
-  job_config=configs/qwen38-27b-inference-full.json
+  job_config=configs/qwen38_27b_full.json
 
 # Qwen3.6-35B-A3B LoRA / full
 python -m recipes.inference.serve \
   config=/path/to/config.json \
-  job_config=configs/qwen36-35b-a3b-inference-lora.json
+  job_config=configs/qwen36_35b_a3b_lora.json
 
 python -m recipes.inference.serve \
   config=/path/to/config.json \
-  job_config=configs/qwen36-35b-a3b-inference-full.json
+  job_config=configs/qwen36_35b_a3b_full.json
 ```
 
 ## Examples
@@ -172,14 +172,14 @@ Exact-match on the `####` final answer. Use `temperature=0` for a deterministic 
 ```bash
 python -m recipes.inference.evaluate \
   config=/path/to/config.json \
-  job_config=configs/qwen3-8b-inference-full.json \
+  job_config=configs/qwen3_8b_full.json \
   task=gsm8k \
   temperature=0 \
   max_tokens=1024
 
 python -m recipes.inference.evaluate \
   config=/path/to/config.json \
-  job_config=configs/qwen3-8b-inference-lora.json \
+  job_config=configs/qwen3_8b_lora.json \
   source_job_id=TRAINING_JOB_ID \
   checkpoint_id=CHECKPOINT_ID \
   task=gsm8k \
@@ -195,7 +195,7 @@ Default prompts are `recipes/sft/conversational/data/identity_eval.jsonl`.
 ```bash
 python -m recipes.inference.evaluate \
   config=/path/to/config.json \
-  job_config=configs/qwen3-8b-inference-lora.json \
+  job_config=configs/qwen3_8b_lora.json \
   source_job_id=TRAINING_JOB_ID \
   checkpoint_id=CHECKPOINT_ID \
   task=identity \

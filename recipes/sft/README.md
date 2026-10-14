@@ -54,7 +54,7 @@ python -m recipes.sft.conversational.train \
 # Train split has 7473 rows. With the 8B configs (batch 8) one epoch is 934 steps.
 python -m recipes.sft.conversational.train \
   config=/path/to/config.json \
-  job_config=configs/qwen3-8b-sft-lora-32k.json \
+  job_config=configs/qwen3_8b_lora.json \
   dataset=openai/gsm8k \
   dataset_split=train \
   max_steps=934
@@ -152,19 +152,19 @@ selects the MoE runtime. Nemotron-3-Nano and MiniMax-M2 are still the 4K
 bodies. Both GLM-5.3-Flash recipes set `ep_comm_backend` to `uccl` because
 cross-node EP16 does not complete with DeepEP.
 
-- `glm45-air-sft-full-128k.json`: GLM-4.5-Air, 8 GPUs, SP8, EP4, 128K
-- `trinity-mini-sft-full-128k.json`: Trinity-Mini, 4 GPUs, SP1, EP4, 128K
-- `qwen38-flash-next-sft-full-256k.json`: Qwen3.8-Flash-Next, 16 GPUs, SP16, EP8, 256K, `qsa_flex`
-- `qwen3-30b-a3b-sft-full-40k.json`: Qwen3-30B-A3B, 4 GPUs, SP1, EP4, 40K (model maximum)
-- `nemotron3-nano-30b-sft-full-4k.json`: Nemotron-3-Nano-30B-A3B-BF16, 4 GPUs, EP4, 4K
-- `minimax-m2-sft-full-4k.json`: MiniMax-M2-BF16, 16 GPUs, EP8, 4K, CPU optimizer offload
-- `glm53-flash-sft-full-256k.json`: GLM-5.3-Flash FP8 weights, 32 GPUs, SP32, EP16, 256K, UCCL, tiled MLP chunk 1024. One optimizer step completed on H200 with about 3 GiB of device headroom.
-- `glm53-flash-bf16-sft-full-256k.json`: GLM-5.3-Flash-BF16, 64 GPUs, SP64, EP32, 256K, UCCL, tiled MLP chunk 512. This is an unproven capacity estimate based on the FP8 run; the BF16 checkpoint has not completed its own 256K step.
+- `glm45_air.json`: GLM-4.5-Air, 8 GPUs, SP8, EP4, 128K
+- `trinity_mini.json`: Trinity-Mini, 4 GPUs, SP1, EP4, 128K
+- `qwen38_flash_next.json`: Qwen3.8-Flash-Next, 16 GPUs, SP16, EP8, 256K, `qsa_flex`
+- `qwen3_30b_a3b.json`: Qwen3-30B-A3B, 4 GPUs, SP1, EP4, 40K (model maximum)
+- `nemotron3_nano_30b.json`: Nemotron-3-Nano-30B-A3B-BF16, 4 GPUs, EP4, 4K
+- `minimax_m2.json`: MiniMax-M2-BF16, 16 GPUs, EP8, 4K, CPU optimizer offload
+- `glm53_flash.json`: GLM-5.3-Flash FP8 weights, 32 GPUs, SP32, EP16, 256K, UCCL, tiled MLP chunk 1024. One optimizer step completed on H200 with about 3 GiB of device headroom.
+- `glm53_flash_bf16.json`: GLM-5.3-Flash-BF16, 64 GPUs, SP64, EP32, 256K, UCCL, tiled MLP chunk 512. This is an unproven capacity estimate based on the FP8 run; the BF16 checkpoint has not completed its own 256K step.
 
 ```bash
 python -m recipes.sft.conversational.train \
   config=/path/to/config.json \
-  job_config=configs/qwen38-flash-next-sft-full-256k.json
+  job_config=configs/qwen38_flash_next.json
 ```
 
 For dense long-context profiles, an integer
@@ -188,34 +188,34 @@ python -m recipes.sft.conversational.train \
 # Qwen3-8B LoRA
 python -m recipes.sft.conversational.train \
   config=/path/to/config.json \
-  job_config=configs/qwen3-8b-sft-lora-32k.json
+  job_config=configs/qwen3_8b_lora.json
 
 # Qwen3.5-9B LoRA / full
 python -m recipes.sft.conversational.train \
   config=/path/to/config.json \
-  job_config=configs/qwen35-9b-sft-lora-64k.json
+  job_config=configs/qwen35_9b_lora.json
 
 python -m recipes.sft.conversational.train \
   config=/path/to/config.json \
-  job_config=configs/qwen35-9b-sft-full-64k.json
+  job_config=configs/qwen35_9b_full.json
 
 # Qwen3.8-27B LoRA / full
 python -m recipes.sft.conversational.train \
   config=/path/to/config.json \
-  job_config=configs/qwen38-27b-sft-lora-64k.json
+  job_config=configs/qwen38_27b_lora.json
 
 python -m recipes.sft.conversational.train \
   config=/path/to/config.json \
-  job_config=configs/qwen38-27b-sft-full-64k.json
+  job_config=configs/qwen38_27b_full.json
 
 # Qwen3.6-35B-A3B LoRA / full
 python -m recipes.sft.conversational.train \
   config=/path/to/config.json \
-  job_config=configs/qwen36-35b-a3b-sft-lora-256k.json
+  job_config=configs/qwen36_35b_a3b_lora.json
 
 python -m recipes.sft.conversational.train \
   config=/path/to/config.json \
-  job_config=configs/qwen36-35b-a3b-sft-full-256k.json
+  job_config=configs/qwen36_35b_a3b_full.json
 ```
 
 ## Logs and Expected Results
@@ -265,7 +265,7 @@ on contest math, run MATH-500 against the same checkpoint (harder than GSM8K):
 ```bash
 python -m recipes.inference.evaluate \
   config=/path/to/config.json \
-  job_config=configs/qwen3-8b-sft-lora-32k.json \
+  job_config=configs/qwen3_8b_lora.json \
   source_job_id=TRAINING_JOB_ID \
   checkpoint_id=CHECKPOINT_ID \
   task=gsm8k \
@@ -279,7 +279,7 @@ After identity SFT, score the percent of completions that contain
 ```bash
 python -m recipes.inference.evaluate \
   config=/path/to/config.json \
-  job_config=configs/qwen3-8b-sft-lora-32k.json \
+  job_config=configs/qwen3_8b_lora.json \
   source_job_id=TRAINING_JOB_ID \
   checkpoint_id=CHECKPOINT_ID \
   task=identity \

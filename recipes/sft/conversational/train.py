@@ -37,7 +37,7 @@ class Config:
     wandb_name: str | None = None
     sf_tracking: bool = False
 
-    job_config: str = "configs/qwen3-8b-sft-full-32k.json"
+    job_config: str = "configs/qwen3_8b_full.json"
 
 
 def main(config: Config) -> dict[str, Any]:

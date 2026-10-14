@@ -49,7 +49,7 @@ class Config:
     wandb_name: str | None = None
     sf_tracking: bool = False
 
-    job_config: str = "configs/qwen3-8b-rl-lora-32k.json"
+    job_config: str = "configs/qwen3_8b_lora.json"
 
 
 def main(config: Config) -> None:
