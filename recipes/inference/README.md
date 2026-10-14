@@ -117,6 +117,11 @@ python -m recipes.inference.serve \
 python -m recipes.inference.serve \
   config=/path/to/config.json \
   job_config=configs/qwen36_35b_a3b_full.json
+
+# GLM-5.3-Flash (sampling extracted from the RL recipe; smoke-tested on QA6)
+python -m recipes.inference.serve \
+  config=/path/to/config.json \
+  job_config=configs/glm53_flash.json
 ```
 
 ## Examples
